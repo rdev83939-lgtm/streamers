@@ -4740,8 +4740,8 @@ async loadMoviesByGenre(genreId, append = false) {
 getAllSourceNames() {
   // Exact names from your movie_sources & tv_sources arrays
   const names = [
-   'movienig','aloso','velarium','gaia','pvr','shahflix','bingr','zx','framextv','lightflix.app','vidsrch','embos2','embos4','embos7','moviesapi(anime)','moviesapi','nexus(sub)','meowtv','stigstream','net27','vidcodin','streamvaultsrc','vidapi_','NontonGo','NontonGo(dub)','watchott','0i0i0','0i0i0 (dub)','111movies','2Embed','456movie','4AniMo (Dub)','4AniMo (Sub)',
-   'cinejoy','cinehub','viduki1','viduki2','viduki3','viduki4','mapple.fun','vidsrc.sh','vidy.st',
+   'vidstuck','movienig','aloso','velarium','gaia','pvr','shahflix','bingr','zx','framextv','lightflix.app','vidsrch','embos2','embos4','embos7','moviesapi(anime)','moviesapi','nexus(sub)','meowtv','stigstream','net27','vidcodin','streamvaultsrc','vidapi_','NontonGo','NontonGo(dub)','watchott','0i0i0','0i0i0 (dub)','111movies','2Embed','456movie','4AniMo (Dub)','4AniMo (Sub)',
+   'shuttletv','cinejoy','cinehub','viduki1','viduki2','viduki3','viduki4','mapple.fun','vidsrc.sh','vidy.st',
 	'67movies','ANIME MEGAPLAY (anilist-dub)','ANIME MEGAPLAY (anilist-sub)',
     'ANIME MEGAPLAY (mal-dub)','ANIME MEGAPLAY (mal-sub)','apiplayer','arrowtv',
     'aurora','autoembed','CastStream (Cast)','cinemaos','cinextream','cinezo',
@@ -7595,6 +7595,18 @@ rows.forEach((r, i) => {
 
   async openEpisodePlayer(imdbId, title, season, episode) {
     const tv_sources = [
+	{
+	   name: 'shuttletv',
+        url: `https://shuttletv.su/watch/${this.currentDetail?.id}?s=${season}&e=${episode}`,
+        type: 'iframe',
+		category: 'tv'
+      },
+	{
+	   name: 'vidstuck',
+        url: `https://vidstuck.xyz/embed/tv/${this.currentDetail?.id}/${season}/${episode}`,
+        type: 'iframe',
+		category: 'tv'
+      },
 	{
 	   name: 'vidy.st',
         url: `https://www.vidy.st/tv/${this.currentDetail?.id}/${season}/${episode}?color=DC2626&nextEpisode=true&episodeSelector=true&autoplayNextEpisode=true&autoplay=true`,
@@ -10619,6 +10631,18 @@ toggleVivamaxVisibility() {
   async openPlayer(imdbId, title, tmdbId) {
     // Build sources (same as before)
     const movie_sources = [
+	{
+	   name: 'shuttletv',
+        url: `https://shuttletv.su/watch/${this.currentDetail?.id}`,
+        type: 'iframe',
+		category: 'movie'
+      },
+	{
+	   name: 'vidstuck',
+        url: `https://vidstuck.xyz/embed/movie/${this.currentDetail?.id}`,
+        type: 'iframe',
+		category: 'movie'
+      },
 	{
 	   name: 'vidy.st',
         url: `https://www.vidy.st/movie/${this.currentDetail?.id}?color=DC2626&autoplay=true`,
