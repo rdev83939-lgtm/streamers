@@ -4766,7 +4766,7 @@ async loadMoviesByGenre(genreId, append = false) {
 getAllSourceNames() {
   // Exact names from your movie_sources & tv_sources arrays
   const names = [
-   '108.181.5.242','iembed','embedmaster','nexstream','nexuswatch','vidstuck','movienig','aloso','velarium','gaia','pvr','shahflix','bingr','zx','framextv','lightflix.app','vidsrch','embos2','embos4','embos7','moviesapi(anime)','moviesapi','nexus(sub)','meowtv','stigstream','net27','vidcodin','streamvaultsrc','vidapi_','NontonGo','NontonGo(dub)','watchott','0i0i0','0i0i0 (dub)','111movies','2Embed','456movie','4AniMo (Dub)','4AniMo (Sub)',
+   'iembed','embedmaster','nexstream','nexuswatch','vidstuck','movienig','aloso','velarium','gaia','pvr','shahflix','bingr','zx','framextv','lightflix.app','vidsrch','embos2','embos4','embos7','moviesapi(anime)','moviesapi','nexus(sub)','meowtv','stigstream','net27','vidcodin','streamvaultsrc','vidapi_','NontonGo','NontonGo(dub)','watchott','0i0i0','0i0i0 (dub)','111movies','2Embed','456movie','4AniMo (Dub)','4AniMo (Sub)',
    'shuttletv','cinejoy','cinehub','viduki1','viduki2','viduki3','viduki4','mapple.fun','vidsrc.sh','vidy.st',
 	'67movies','ANIME MEGAPLAY (anilist-dub)','ANIME MEGAPLAY (anilist-sub)',
     'ANIME MEGAPLAY (mal-dub)','ANIME MEGAPLAY (mal-sub)','apiplayer','arrowtv',
@@ -7623,12 +7623,7 @@ rows.forEach((r, i) => {
     const tv_sources = [
 		
 		
-	      {
-	    name: '108.181.5.242',
-        url: `https://108.181.5.242/embed/tv/${this.currentDetail?.id}/${season}/${episode}`,
-        type: 'iframe',
-		category: 'tv'
-      },
+	  
     {
 	    name: 'iembed',
         url: `https://iembed.codeera.dev/embed/tv/${this.currentDetail?.id}/${season}/${episode}`,
@@ -10695,12 +10690,7 @@ toggleVivamaxVisibility() {
   async openPlayer(imdbId, title, tmdbId) {
     // Build sources (same as before)
     const movie_sources = [
-		  {
-	   name: '108.181.5.242',
-        url: `https://108.181.5.242/embed/movie/${this.currentDetail?.id}`,
-        type: 'iframe',
-		category: 'movie'
-      },
+	
     {
 	   name: 'iembed',
         url: `https://iembed.codeera.dev/embed/movie/${this.currentDetail?.id}`,
