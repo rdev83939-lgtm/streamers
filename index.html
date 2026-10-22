@@ -3457,6 +3457,15 @@ episode-item.tv-focus {
 @media (max-width: 480px) {
     .banner-content { padding-bottom: 80px; }
 }
+/* Hide banner by default */
+#rotatingBanner {
+    display: none;
+}
+
+/* Show banner only on home */
+body:not(.home-hidden) #rotatingBanner {
+    display: block;
+}
   </style>
 </head>
 <body>
@@ -9605,8 +9614,20 @@ this.currentTab = tab;
   });
 
   if (tab === 'home') {
-    this.showHome();
-  } else if (tab === 'movies') {
+   document.body.classList.remove('home-hidden');
+        if (rotatingBanner) rotatingBanner.style.display = 'block';
+        if (mainContent) mainContent.style.display = 'block';
+        if (subNav) subNav.style.display = 'flex';
+        this.showHome();
+    } else {
+       
+        document.body.classList.add('home-hidden');
+        if (rotatingBanner) rotatingBanner.style.display = 'none';
+        if (mainContent) mainContent.style.display = 'none';
+        if (subNav) subNav.style.display = 'none';
+		
+	}	
+  if (tab === 'movies') {
     this.showMovies();
   } else if (tab === 'tv') {
     this.showTv();
@@ -9627,11 +9648,15 @@ this.currentTab = tab;
  }else if (tab === 'iptv') {
       document.getElementById('iptvPage').classList.add('active');
       this.loadIPTVChannels(); // <--- Loads your API channels here
-    }
+    } 
   }
+  
   window.scrollTo({ top: 0, behavior: 'smooth' });
   setTimeout(() => { TVNav.updateFocusableElements(); TVNav.setInitialFocus(); }, 100);
 },
+
+
+
   showWatchlist() {
     this.isCategoryView = true;
     this.closeSearch();
