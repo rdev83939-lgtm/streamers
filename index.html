@@ -9596,16 +9596,7 @@ this.currentTab = tab;
   const mainContent = document.getElementById('mainContent');
   const subNav = document.getElementById('subNav');
 
-  if (tab === 'home') {
-    if (hero) hero.style.display = 'flex';
-    if (mainContent) mainContent.style.display = 'block';
-    if (subNav) subNav.style.display = 'flex';
-    this.showHome();
-  } else {
-    if (hero) hero.style.display = 'none';
-    if (mainContent) mainContent.style.display = 'none';
-    if (subNav) subNav.style.display = 'none';
-    document.body.classList.add('home-hidden');
+  
 //////////
   this.currentTab = tab;
   document.querySelectorAll('.bottom-item').forEach((b, i) => {
@@ -9618,6 +9609,7 @@ this.currentTab = tab;
         if (rotatingBanner) rotatingBanner.style.display = 'block';
         if (mainContent) mainContent.style.display = 'block';
         if (subNav) subNav.style.display = 'flex';
+		if (hero) hero.style.display = 'flex';
         this.showHome();
     } else {
        
@@ -9649,7 +9641,7 @@ this.currentTab = tab;
       document.getElementById('iptvPage').classList.add('active');
       this.loadIPTVChannels(); // <--- Loads your API channels here
     } 
-  }
+  
   
   window.scrollTo({ top: 0, behavior: 'smooth' });
   setTimeout(() => { TVNav.updateFocusableElements(); TVNav.setInitialFocus(); }, 100);
