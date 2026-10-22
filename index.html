@@ -3297,6 +3297,166 @@ episode-item.tv-focus {
         .btn:hover::after {
             transform: scaleX(1);
         }
+		
+		
+		
+		/* ROTATING BANNER STYLES */
+.banner-wrapper {
+    position: relative;
+    width: 100%;
+    height: 65vh; /* Matches your existing hero height */
+    overflow: hidden;
+    background: var(--bg);
+}
+
+.banner-slide {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    transition: opacity 0.8s ease-in-out;
+    display: flex;
+    align-items: flex-end;
+    pointer-events: none;
+}
+
+.banner-slide.active {
+    opacity: 1;
+    z-index: 1;
+    pointer-events: auto;
+}
+
+.banner-bg {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center top;
+    transition: transform 6s ease;
+}
+
+.banner-slide.active .banner-bg {
+    transform: scale(1.05);
+}
+
+.banner-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, var(--bg) 5%, rgba(13,13,13,0.6) 40%, transparent 70%);
+}
+
+.banner-content {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    padding: 0 16px 40px;
+    max-width: 600px;
+    margin-bottom: 20px;
+}
+
+.banner-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    background: var(--accent);
+    color: #000;
+    font-size: 10px;
+    font-weight: 900;
+    border-radius: 4px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    letter-spacing: 1px;
+}
+
+.banner-title {
+    font-size: clamp(24px, 5vw, 42px);
+    font-weight: 900;
+    line-height: 1.1;
+    margin-bottom: 10px;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+}
+
+.banner-meta {
+    display: flex;
+    gap: 12px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    font-weight: 600;
+}
+
+.banner-desc {
+    font-size: 14px;
+    line-height: 1.5;
+    color: #ddd;
+    margin-bottom: 20px;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.banner-btns {
+    display: flex;
+    gap: 12px;
+}
+
+.banner-btn {
+    padding: 12px 24px;
+    border-radius: var(--radius-md);
+    font-size: 14px;
+    font-weight: 800;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s;
+}
+
+.banner-btn-play {
+    background: var(--accent);
+    color: #000;
+}
+
+.banner-btn-play:hover {
+    background: var(--accent-dark);
+    transform: scale(1.05);
+}
+
+.banner-btn-info {
+    background: rgba(255,255,255,0.2);
+    color: #fff;
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255,255,255,0.2);
+}
+
+.banner-indicators {
+    position: absolute;
+    bottom: 15px;
+    right: 16px;
+    z-index: 3;
+    display: flex;
+    gap: 6px;
+}
+
+.dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.3);
+    transition: all 0.3s;
+}
+
+.dot.active {
+    background: var(--accent);
+    width: 20px;
+    border-radius: 3px;
+}
+
+@media (max-width: 480px) {
+    .banner-content { padding-bottom: 80px; }
+}
   </style>
 </head>
 <body>
@@ -3428,7 +3588,15 @@ episode-item.tv-focus {
 <!-- Main Content -->
 <!-- Network Filters -->
 <!-- Compact Network Bar on Home -->
-
+<!-- REPLACE YOUR OLD .hero DIV WITH THIS -->
+<div id="rotatingBanner" class="banner-wrapper">
+    <!-- Content will be injected here by JavaScript -->
+    
+    <!-- Indicators Container -->
+    <div class="banner-indicators">
+        <!-- Dots will be injected here -->
+    </div>
+</div>
 <br><br><br>
 <main id="mainContent"></main>
 
@@ -4200,6 +4368,236 @@ const BASE = 'https://api.themoviedb.org/3';
 const IMG = 'https://image.tmdb.org/t/p';
 const MAL_CLIENT_ID = '90af69b1be46785e6ed7411db906dfda';
 const ANILIST_SECRET = 'V265ZkCjpbntJERNLs4V0vofVMKQdHO6XtAtLhvs';
+
+
+////////banner
+let currentSlide = 0;
+let autoRotateInterval;
+let bannerLoaded = false;
+
+// ✅ Define showToast globally (it's used by banner but defined in app)
+function showToast(message) {
+    const toast = document.getElementById('toast');
+    if (toast) {
+        toast.textContent = message;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 3000);
+    } else {
+        console.log('Toast:', message);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    console.log("DOM Loaded. Starting fetch...");
+    loadLatestMovies();
+});
+
+async function loadLatestMovies() {
+    const bannerContainer = document.getElementById('rotatingBanner');
+    
+    try {
+        const response = await fetch(`${BASE}/trending/movie/week?api_key=${API_KEY}&language=en-US`);
+        
+        if (!response.ok) {
+            throw new Error(`API Error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log("✅ Data received:", data.results ? data.results.length : 0, "movies");
+
+        if (data.results && data.results.length > 0) {
+            renderBanner(data.results.slice(0, 5));
+            startBannerRotation();
+        } else {
+            bannerContainer.innerHTML = '<div style="padding:20px;color:#fff;">No movies found.</div>';
+        }
+
+    } catch (error) {
+        console.error("❌ Error fetching latest movies:", error);
+        bannerContainer.innerHTML = `<div style="padding:20px;color:red;text-align:center;">Failed to load.<br>Check Console</div>`;
+    }
+}
+
+function renderBanner(movies) {
+    const bannerContainer = document.getElementById('rotatingBanner');
+    
+    bannerContainer.innerHTML = '';
+
+    const IMG_URL = 'https://image.tmdb.org/t/p/original';
+
+    movies.forEach((movie, index) => {
+        const imageUrl = movie.backdrop_path 
+            ? `${IMG_URL}${movie.backdrop_path}` 
+            : movie.poster_path 
+                ? `${IMG_URL}${movie.poster_path}`
+                : 'https://via.placeholder.com/1920x1080?text=No+Image';
+
+        const slide = document.createElement('div');
+        slide.className = `banner-slide ${index === 0 ? 'active' : ''}`;
+        slide.dataset.index = index;
+        slide.dataset.movieId = movie.id;
+        slide.dataset.movieTitle = movie.title || movie.name;
+        
+        slide.innerHTML = `
+            <div class="banner-bg" style="background-image: url('${imageUrl}');"></div>
+            <div class="banner-overlay"></div>
+            <div class="banner-content">
+                <span class="banner-badge">${index === 0 ? 'New Release' : 'Trending'}</span>
+                <h1 class="banner-title">${movie.title || movie.name}</h1>
+                <div class="banner-meta">
+                    <span>${new Date(movie.release_date || movie.first_air_date).getFullYear()}</span>
+                    <span>⭐ ${movie.vote_average.toFixed(1)}</span>
+                </div>
+                <p class="banner-desc">${movie.overview || 'No description available.'}</p>
+                <div class="banner-btns">
+                    <button class="banner-btn banner-btn-play" data-movie-id="${movie.id}" data-movie-title="${movie.title || movie.name}">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Play Now
+                    </button>
+                   
+                </div>
+            </div>
+        `;
+        bannerContainer.appendChild(slide);
+    });
+
+    // Add Indicators
+    const indicators = document.createElement('div');
+    indicators.className = 'banner-indicators';
+    movies.forEach((_, i) => {
+        const dot = document.createElement('div');
+        dot.className = `dot ${i === 0 ? 'active' : ''}`;
+        dot.dataset.index = i;
+        dot.addEventListener('click', () => goToSlide(i));
+        indicators.appendChild(dot);
+    });
+    bannerContainer.appendChild(indicators);
+    
+    // ✅ Attach event listeners to buttons
+    attachBannerEventListeners();
+    
+    bannerLoaded = true;
+}
+
+function attachBannerEventListeners() {
+    // Play buttons
+    document.querySelectorAll('.banner-btn-play').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const movieId = parseInt(btn.dataset.movieId);
+            const movieTitle = btn.dataset.movieTitle;
+            playBannerMovie(movieId, movieTitle);
+        });
+    });
+    
+    // Info buttons
+    document.querySelectorAll('.banner-btn-info').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const movieId = parseInt(btn.dataset.movieId);
+            showBannerDetails(movieId);
+        });
+    });
+}
+
+function playBannerMovie(id, title) {
+    console.log("Play clicked:", id, title);
+    showToast(`Loading: ${title}...`);
+    
+    // ✅ Use your existing app.openDetail method
+    if (typeof app !== 'undefined' && app.openDetail) {
+        app.openDetail(id, 'movie');
+    } else {
+        // Fallback if app not ready
+        setTimeout(() => {
+            if (typeof app !== 'undefined' && app.openDetail) {
+                app.openDetail(id, 'movie');
+            } else {
+                showToast('App not ready, please try again');
+            }
+        }, 500);
+    }
+}
+
+function showBannerDetails(id) {
+    console.log("Info clicked:", id);
+    showToast('Loading details...');
+    
+    // ✅ Use your existing app.openDetail method
+    if (typeof app !== 'undefined' && app.openDetail) {
+        app.openDetail(id, 'movie');
+    } else {
+        setTimeout(() => {
+            if (typeof app !== 'undefined' && app.openDetail) {
+                app.openDetail(id, 'movie');
+            }
+        }, 500);
+    }
+}
+
+function startBannerRotation() {
+    const slides = document.querySelectorAll('.banner-slide');
+    const dots = document.querySelectorAll('.dot');
+    
+    if (slides.length === 0) {
+        console.warn('No slides found, retrying in 500ms...');
+        setTimeout(startBannerRotation, 500);
+        return;
+    }
+
+    console.log(`Starting banner rotation with ${slides.length} slides`);
+
+    clearInterval(autoRotateInterval);
+    currentSlide = 0;
+    
+    autoRotateInterval = setInterval(() => {
+        currentSlide = (currentSlide + 1) % slides.length;
+        
+        slides.forEach((slide, i) => {
+            slide.classList.toggle('active', i === currentSlide);
+        });
+        
+        dots.forEach((dot, i) => {
+            dot.classList.toggle('active', i === currentSlide);
+        });
+    }, 6000);
+}
+
+function goToSlide(index) {
+    const slides = document.querySelectorAll('.banner-slide');
+    const dots = document.querySelectorAll('.dot');
+    
+    if (slides.length === 0) return;
+    
+    currentSlide = index;
+    
+    slides.forEach((slide, i) => {
+        slide.classList.toggle('active', i === currentSlide);
+    });
+    
+    dots.forEach((dot, i) => {
+        dot.classList.toggle('active', i === currentSlide);
+    });
+    
+    clearInterval(autoRotateInterval);
+    startBannerRotation();
+}
+
+// Pause on hover
+document.addEventListener('DOMContentLoaded', () => {
+    const banner = document.getElementById('rotatingBanner');
+    if (banner) {
+        banner.addEventListener('mouseenter', () => {
+            clearInterval(autoRotateInterval);
+        });
+        
+        banner.addEventListener('mouseleave', () => {
+            if (bannerLoaded) {
+                startBannerRotation();
+            }
+        });
+    }
+});
+///////////////////
 //FMHY
 	document.getElementById('fmhy').addEventListener('click', () => {
     window.location.href = 'https://fmhy.net/';
