@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
-<script id="webtorrent-script" src="https://cdnjs.cloudflare.com/ajax/libs/webtorrent/0.108.0/webtorrent.min.js"></script>
+<script id="webtorrent-script" src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
 <script>
   // Check if WebTorrent is already loaded (in case of cache)
   if (typeof WebTorrent !== 'undefined') {
@@ -4785,7 +4785,7 @@ const TorrentPlayer = {
     return null;
   },
 
-  playMagnet(input, title = 'Torrent Stream') {
+ playMagnet(input, title = 'Torrent Stream') {
     const uri = this.normalize(input);
     if (!uri) { app.showToast('Invalid magnet / hash'); return; }
 
@@ -4810,7 +4810,15 @@ const TorrentPlayer = {
 
     const statusEl = document.getElementById('torrentStatus');
 
+    // Timeout check for zero WebRTC peers
+    let peerTimeout = setTimeout(() => {
+      if (this.torrent && this.torrent.numPeers === 0 && statusEl) {
+        statusEl.innerHTML = `⚠️ 0 WebRTC peers found.<br><small style="font-size:11px;color:#f59e0b;">Standard magnets often fail in browsers. Use WebTorrent-seeded or hybrid magnets.</small>`;
+      }
+    }, 12000);
+
     this.ensureClient().add(uri, { announce: this._extraAnnounce }, torrent => {
+      clearTimeout(peerTimeout);
       this.torrent = torrent;
       const exts = ['.mp4', '.m4v', '.webm', '.mkv', '.avi', '.mov', '.ts'];
       this._videos = torrent.files.filter(f => exts.some(e => f.name.toLowerCase().endsWith(e)));
@@ -4955,27 +4963,37 @@ toggleIframeBlocker() {
 },
 	///////////////////
 	///////////////
-	openTorrentModal() {
-  const m = document.getElementById('torrentModal');
-  m.classList.add('open');
-  document.body.style.overflow = 'hidden';
-  this.pushHistory({ page: 'torrentModal' });
-  setTimeout(() => document.getElementById('torrentInput').focus(), 100);
-},
+openTorrentModal() {
+    const m = document.getElementById('torrentModal');
+    if (!m) return;
+    m.style.display = 'flex';
+    m.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    this.pushHistory({ page: 'torrentModal' });
+    setTimeout(() => document.getElementById('torrentInput')?.focus(), 100);
+  },
 
-closeTorrentModal(useHistory = true) {
-  const m = document.getElementById('torrentModal');
-  if (!m) return;
-  m.classList.add('closing');
-  setTimeout(() => { m.classList.remove('open', 'closing'); document.body.style.overflow = ''; }, 400);
-  if (useHistory) history.back();
-},
+  closeTorrentModal(useHistory = true) {
+    const m = document.getElementById('torrentModal');
+    if (!m) return;
+    m.classList.add('closing');
+    setTimeout(() => { 
+      m.classList.remove('open', 'closing'); 
+      m.style.display = 'none';
+      document.body.style.overflow = ''; 
+    }, 400);
+    if (useHistory) history.back();
+  },
 
-playTorrentFromModal() {
-  const input = document.getElementById('torrentInput').value;
-  this.closeTorrentModal();
-  setTimeout(() => TorrentPlayer.playMagnet(input, 'Custom Torrent'), 350);
-},
+  playTorrentFromModal() {
+    const input = document.getElementById('torrentInput')?.value;
+    if (!input) {
+      this.showToast('Please enter a valid magnet link');
+      return;
+    }
+    this.closeTorrentModal();
+    setTimeout(() => TorrentPlayer.playMagnet(input, 'Custom Torrent'), 350);
+  },
 	
 	///////////
 	setMatchRing(percent) {
@@ -5173,7 +5191,7 @@ async loadMoviesByGenre(genreId, append = false) {
 getAllSourceNames() {
   // Exact names from your movie_sources & tv_sources arrays
   const names = [
-   'atlantic','cinelite','iembed','embedmaster','nexstream','nexuswatch','vidstuck','movienig','aloso','velarium','gaia','pvr','shahflix','bingr','zx','framextv','lightflix.app','vidsrch','embos2','embos4','embos7','moviesapi(anime)','moviesapi','nexus(sub)','meowtv','stigstream','net27','vidcodin','streamvaultsrc','vidapi_','NontonGo','NontonGo(dub)','watchott','0i0i0','0i0i0 (dub)','111movies','2Embed','456movie','4AniMo (Dub)','4AniMo (Sub)',
+   'play4u','atlantic','cinelite','iembed','embedmaster','nexstream','nexuswatch','vidstuck','movienig','aloso','velarium','gaia','pvr','shahflix','bingr','zx','framextv','lightflix.app','vidsrch','embos2','embos4','embos7','moviesapi(anime)','moviesapi','nexus(sub)','meowtv','stigstream','net27','vidcodin','streamvaultsrc','vidapi_','NontonGo','NontonGo(dub)','watchott','0i0i0','0i0i0 (dub)','111movies','2Embed','456movie','4AniMo (Dub)','4AniMo (Sub)',
    'shuttletv','cinejoy','cinehub','viduki1','viduki2','viduki3','viduki4','mapple.fun','vidsrc.sh','vidy.st',
 	'67movies','ANIME MEGAPLAY (anilist-dub)','ANIME MEGAPLAY (anilist-sub)',
     'ANIME MEGAPLAY (mal-dub)','ANIME MEGAPLAY (mal-sub)','apiplayer','arrowtv',
@@ -8028,6 +8046,12 @@ rows.forEach((r, i) => {
 
   async openEpisodePlayer(imdbId, title, season, episode) {
     const tv_sources = [
+	{
+	    name: 'play4u',
+        url: `https://play4u.org/series/${imdbId}/s-${season}/ep-${episode}`,
+        type: 'iframe',
+		category: 'tv'
+      },
 		{
 	    name: 'atlantic',
         url: `https://atlantic.st/watch/${this.currentDetail?.id}/${season}/${episode}`,
@@ -11115,8 +11139,16 @@ toggleVivamaxVisibility() {
   async openPlayer(imdbId, title, tmdbId) {
     // Build sources (same as before)
     const movie_sources = [
+		
 		{
-	   name: 'atlantic',
+	   name: 'play4u',
+        url: `https://play4u.org/${imdbId}`,
+        type: 'iframe',
+		category: 'movie'
+      },
+		
+		{
+	   name: 'atlantic.',
         url: `https://atlantic.st/watch/${this.currentDetail?.id}`,
         type: 'iframe',
 		category: 'movie'
@@ -14003,7 +14035,7 @@ document.addEventListener('DOMContentLoaded', () => app.init());
 
 
 <!---DEV------>
-<!-- Load----->
+<!-- Load-----
 <script 
   disable-devtool-auto 
   src="https://cdn.jsdelivr.net/npm/disable-devtool"
@@ -14314,7 +14346,25 @@ document.addEventListener('DOMContentLoaded', () => app.init());
     <button class="detail-btn detail-btn-primary focusable" style="width:100%;" onclick="app.playTorrentFromModal()">▶ Play</button>
   </div>
 </div>
-
+<!-- ===== TORRENT INPUT MODAL ===== -->
+<div class="episode-modal" id="torrentModal" style="display:none;">
+  <div class="episode-modal-header">
+    <button class="back-arrow-btn focusable" onclick="app.closeTorrentModal()">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <span class="episode-modal-title">Torrent / Magnet Streamer</span>
+  </div>
+  <div class="episode-modal-content" style="display:flex;flex-direction:column;justify-content:center;align-items:center;gap:16px;padding:40px 20px;">
+    <div style="width:100%;max-width:500px;display:flex;flex-direction:column;gap:12px;">
+      <label style="font-size:14px;font-weight:700;color:var(--text);">Enter Magnet Link or Torrent URL:</label>
+      <textarea id="torrentInput" class="focusable" placeholder="magnet:?xt=urn:btih:... or .torrent URL" style="width:100%;height:120px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;color:var(--text);font-family:inherit;font-size:14px;outline:none;resize:none;"></textarea>
+      <button class="detail-btn detail-btn-primary focusable" onclick="app.playTorrentFromModal()" style="width:100%;padding:14px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        Stream Torrent
+      </button>
+    </div>
+  </div>
+</div>
 <!-------------------->
 </body>
 </html>
