@@ -12185,39 +12185,28 @@ toggleVivamaxVisibility() {
     const target = url || this._pendingExternalUrl;
     if (!target) {
       this.showToast('No stream URL');
-      return;
+      return false;
     }
-    const encoded = encodeURIComponent(target);
+    this._pendingExternalUrl = target;
+
     const isAndroid = /android/i.test(navigator.userAgent || '');
     const isMagnet = /^magnet:/i.test(target);
     const isHttp = /^https?:/i.test(target);
 
-    const candidates = [];
-    if (isAndroid) {
-      // mpv-android (is.xyz.mpv) — primary
-      if (isHttp) {
-        const scheme = target.startsWith('https') ? 'https' : 'http';
-        candidates.push(
-          'intent://' + target.replace(/^https?:\/\//i, '') +
-          '#Intent;scheme=' + scheme + ';package=is.xyz.mpv;type=video/*;S.browser_fallback_url=' + encoded + ';end'
-        );
-        candidates.push('intent:' + target + '#Intent;action=android.intent.action.VIEW;type=video/*;package=is.xyz.mpv;end');
-      }
-      // Generic video VIEW (lets user pick MPV / VLC / etc.)
-      candidates.push('intent:' + target + '#Intent;action=android.intent.action.VIEW;type=video/*;end');
-      if (isMagnet) {
-        candidates.push('intent:' + target + '#Intent;action=android.intent.action.VIEW;package=is.xyz.mpv;end');
-        candidates.push(target);
-      }
-    } else {
-      candidates.push('mpv://' + encoded);
-      candidates.push('mpv:' + target);
-      if (isMagnet) candidates.push(target);
-    }
-
-    this.showToast(isAndroid ? 'Opening in MPV…' : 'Launching MPV…');
-    let launched = false;
-    for (const href of candidates) {
+    const tryNavigate = (href) => {
+      if (!href) return false;
+      try {
+        // 1) location assignment (best for intent: on Android WebView / some browsers)
+        const iframe = document.createElement('iframe');
+        iframe.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;border:0;';
+        iframe.setAttribute('src', href);
+        document.body.appendChild(iframe);
+        setTimeout(() => { try { document.body.removeChild(iframe); } catch (e) {} }, 2000);
+      } catch (e) {}
+      try {
+        window.location.href = href;
+        return true;
+      } catch (e) {}
       try {
         const a = document.createElement('a');
         a.href = href;
@@ -12225,26 +12214,127 @@ toggleVivamaxVisibility() {
         a.style.display = 'none';
         document.body.appendChild(a);
         a.click();
-        document.body.removeChild(a);
-        launched = true;
-        break;
+        setTimeout(() => { try { document.body.removeChild(a); } catch (e) {} }, 500);
+        return true;
       } catch (e) {}
+      return false;
+    };
+
+    if (isAndroid) {
+      // mpv-android package: is.xyz.mpv
+      // Chrome requires a user gesture for intent:// — auto may fail; caller can show tap button
+      const playStore = 'https://play.google.com/store/apps/details?id=is.xyz.mpv';
+      const candidates = [];
+
+      if (isHttp) {
+        // Canonical intent form for VIEW + package
+        candidates.push(
+          'intent://' + target.replace(/^https?:\/\//i, '') +
+          '#Intent;scheme=' + (target.startsWith('https') ? 'https' : 'http') +
+          ';action=android.intent.action.VIEW;type=video/*;package=is.xyz.mpv' +
+          ';S.browser_fallback_url=' + encodeURIComponent(playStore) + ';end'
+        );
+        candidates.push(
+          'intent:' + target +
+          '#Intent;action=android.intent.action.VIEW;type=video/*;package=is.xyz.mpv' +
+          ';S.browser_fallback_url=' + encodeURIComponent(playStore) + ';end'
+        );
+        // Generic video handler (user may pick MPV)
+        candidates.push(
+          'intent:' + target +
+          '#Intent;action=android.intent.action.VIEW;type=video/x-matroska;end'
+        );
+        candidates.push(
+          'intent:' + target +
+          '#Intent;action=android.intent.action.VIEW;type=video/*;end'
+        );
+      } else if (isMagnet) {
+        candidates.push(
+          'intent:' + target +
+          '#Intent;action=android.intent.action.VIEW;package=is.xyz.mpv;end'
+        );
+        candidates.push(target);
+      } else {
+        candidates.push(
+          'intent:' + target +
+          '#Intent;action=android.intent.action.VIEW;type=video/*;package=is.xyz.mpv;end'
+        );
+      }
+
+      this.showToast('Opening in MPV…');
+      // Fire first candidate immediately
+      tryNavigate(candidates[0]);
+      // Stagger backups (some WebViews only honor the first navigation)
+      candidates.slice(1, 3).forEach((href, i) => {
+        setTimeout(() => tryNavigate(href), 400 * (i + 1));
+      });
+      return true;
     }
-    if (!launched) {
-      this.showToast(isAndroid
-        ? 'Install MPV (is.xyz.mpv) or use "Open on this page"'
-        : 'MPV protocol not registered — paste URL into MPV');
-    } else if (!isAndroid) {
-      setTimeout(() => {
-        try {
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(target);
-            this.showToast('URL copied — paste into MPV if it did not open');
-          }
-        } catch (e) {}
-      }, 1200);
-    }
+
+    // Desktop
+    const encoded = encodeURIComponent(target);
+    this.showToast('Launching MPV…');
+    tryNavigate('mpv://' + encoded);
+    setTimeout(() => tryNavigate('mpv:' + target), 300);
+    if (isMagnet) setTimeout(() => tryNavigate(target), 600);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        setTimeout(() => {
+          navigator.clipboard.writeText(target).catch(() => {});
+        }, 500);
+      }
+    } catch (e) {}
+    return true;
   },
+
+  // Full-screen single-tap MPV launch (required when browser blocks silent intents)
+  showMpvTapToOpen(url) {
+    const target = url || this._pendingExternalUrl;
+    if (!target) return;
+    this._pendingExternalUrl = target;
+    const playerContent = document.getElementById('playerContent');
+    if (!playerContent) {
+      this.openStreamInMpv(target);
+      return;
+    }
+    const playStore = 'https://play.google.com/store/apps/details?id=is.xyz.mpv';
+    let intentHref = target;
+    if (/^https?:/i.test(target)) {
+      intentHref =
+        'intent://' + target.replace(/^https?:\/\//i, '') +
+        '#Intent;scheme=' + (target.startsWith('https') ? 'https' : 'http') +
+        ';action=android.intent.action.VIEW;type=video/*;package=is.xyz.mpv' +
+        ';S.browser_fallback_url=' + encodeURIComponent(playStore) + ';end';
+    } else {
+      intentHref =
+        'intent:' + target +
+        '#Intent;action=android.intent.action.VIEW;package=is.xyz.mpv;end';
+    }
+
+    playerContent.innerHTML = `
+      <div id="playerContainer" style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;gap:20px;padding:24px;text-align:center;">
+        <div style="font-size:18px;font-weight:800;color:#fff;">Unsupported in browser</div>
+        <div style="font-size:13px;color:var(--text-muted);max-width:340px;line-height:1.5;">
+          Tap below to open in MPV. Android blocks auto-open without a tap.
+        </div>
+        <a id="mpvTapLink" href="${intentHref.replace(/"/g, '&quot;')}"
+          style="display:flex;align-items:center;justify-content:center;gap:10px;max-width:300px;width:100%;padding:16px 20px;background:var(--accent);color:#000;border-radius:12px;font-size:16px;font-weight:800;text-decoration:none;text-transform:uppercase;letter-spacing:0.5px;"
+          class="focusable">
+          🎬 Open in MPV
+        </a>
+      </div>
+    `;
+    // Also bind JS handler so we fire all intent variants on the same user gesture
+    const link = document.getElementById('mpvTapLink');
+    if (link) {
+      link.addEventListener('click', (e) => {
+        // Let default intent href run; also fire openStreamInMpv as backup on same gesture
+        setTimeout(() => this.openStreamInMpv(target), 50);
+      }, { passive: true });
+    }
+    setTimeout(() => { if (typeof TVNav !== 'undefined') { TVNav.updateFocusableElements(); TVNav.setInitialFocus(); } }, 150);
+  },
+
 
   // Ensure hls.js is available for m3u8 streams (Stremio / direct URLs)
   async ensureHlsJs() {
@@ -12337,69 +12427,29 @@ toggleVivamaxVisibility() {
     }
 
     // ----- EXTERNAL / unsupported (mkv etc.) -----
-    // Android: auto-open unsupported formats in MPV (no dialog)
-    // Other platforms: chooser (same page / MPV / next)
+    // Android Chrome blocks silent intent:// without a user tap → show ONE MPV button only
     if (type === 'external') {
       if (playerLoading) playerLoading.style.display = 'none';
       this._pendingExternalUrl = url;
 
       const isAndroid = /android/i.test(navigator.userAgent || '');
-      if (isAndroid && (isUnsupportedContainer || !isWebSupportedFormat)) {
-        this.showToast('Opening in MPV...');
-        setTimeout(() => { this.openStreamInMpv(url); }, 100);
-        // Still show a minimal fallback UI in case MPV is not installed
-        const safeName = String(source.name || 'Stream').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        playerContent.innerHTML = `
-          <div id="playerContainer" style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;gap:14px;padding:24px;text-align:center;">
-            <div style="font-size:18px;font-weight:800;color:#fff;">Opening in MPV…</div>
-            <div style="font-size:13px;color:var(--text-muted);max-width:380px;line-height:1.5;">
-              Unsupported format — launching MPV on Android. If nothing opens, install MPV or try another option.
-            </div>
-            <div style="font-size:12px;color:var(--accent);max-width:90%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${safeName}</div>
-            <button class="detail-btn detail-btn-primary focusable" style="max-width:300px;width:100%;"
-              onclick="app.openStreamInMpv()">
-              🎬 Retry MPV
-            </button>
-            <button class="detail-btn detail-btn-sec focusable" style="max-width:300px;width:100%;"
-              onclick="app.openStreamSamePage()">
-              ▶ Open on this page
-            </button>
-            <button class="detail-btn detail-btn-sec focusable" style="max-width:300px;width:100%;"
-              onclick="app.nextSource && app.nextSource()">
-              Try Next Source
-            </button>
-          </div>
-        `;
-        setTimeout(() => { if (typeof TVNav !== 'undefined') { TVNav.updateFocusableElements(); TVNav.setInitialFocus(); } }, 200);
+      if (isAndroid) {
+        // Try auto-launch first (works in some WebViews), then always show single MPV tap
+        this.openStreamInMpv(url);
+        this.showMpvTapToOpen(url);
         return;
       }
 
-      const safeName = String(source.name || 'Stream').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const formatHint = isUnsupportedContainer
-        ? 'This file type (e.g. MKV) is not supported in the browser player.'
-        : 'This source cannot run inside an iframe.';
+      // Desktop / other: try protocol handler
+      this.showToast('Opening in MPV…');
+      this.openStreamInMpv(url);
       playerContent.innerHTML = `
         <div id="playerContainer" style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;gap:14px;padding:24px;text-align:center;">
-          <div style="font-size:18px;font-weight:800;color:#fff;">Unsupported in browser</div>
-          <div style="font-size:13px;color:var(--text-muted);max-width:380px;line-height:1.5;">
-            ${formatHint} Open on this page or in MPV.
-          </div>
-          <div style="font-size:12px;color:var(--accent);max-width:90%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${safeName}</div>
-          <button class="detail-btn detail-btn-primary focusable" style="max-width:300px;width:100%;"
-            onclick="app.openStreamSamePage()">
-            ▶ Open on this page
-          </button>
-          <button class="detail-btn detail-btn-sec focusable" style="max-width:300px;width:100%;"
-            onclick="app.openStreamInMpv()">
-            🎬 Open in MPV
-          </button>
-          <button class="detail-btn detail-btn-sec focusable" style="max-width:300px;width:100%;"
-            onclick="app.nextSource && app.nextSource()">
-            Try Next Source
-          </button>
+          <div class="player-spinner"></div>
+          <div style="font-size:16px;font-weight:800;color:#fff;">Opening in MPV…</div>
+          <div style="font-size:13px;color:var(--text-muted);max-width:360px;">Unsupported in browser — launched in MPV.</div>
         </div>
       `;
-      setTimeout(() => { if (typeof TVNav !== 'undefined') { TVNav.updateFocusableElements(); TVNav.setInitialFocus(); } }, 200);
       return;
     }
 
