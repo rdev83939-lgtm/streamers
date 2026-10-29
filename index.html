@@ -2937,6 +2937,8 @@ episode-item.tv-focus {
   cursor: pointer;
   transition: all 0.2s;
   position: relative;
+  text-decoration: none;
+  color: inherit;
 }
 .source-item:hover {
   border-color: var(--accent);
@@ -6869,7 +6871,42 @@ renderSourceList(sources) {
     const rankBadge = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
     const fastestClass = i === 0 ? 'source-item-fastest' : '';
     const autoPlayBadge = (autoPlayEnabled && i === 0) ? '<span style="margin-left:8px;font-size:11px;color:var(--accent);font-weight:700;">[AUTO]</span>' : '';
+
+    const useMpv = this.shouldOpenInMpv(s);
+    const typeLabel = useMpv ? 'MPV' : (s.type === 'iframe' ? 'Embed' : (s.type === 'torrent' ? 'Torrent' : 'Direct'));
+    // Native <a href="intent:..."> is the most reliable way to open apps on Android
+    let mpvHref = '#';
+    if (useMpv && s.url) {
+      const intents = this.buildMpvIntents(s.url);
+      mpvHref = (intents && intents[0]) ? intents[0] : s.url;
+    }
+    const escHref = String(mpvHref).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
     
+    if (useMpv) {
+      return `
+      <a class="source-item focusable ${fastestClass}" 
+           data-index="${i}"
+           data-mpv="1"
+           tabindex="0"
+           href="${escHref}"
+           onclick="app.onMpvSourceClick(event, ${i})">
+        <div class="source-item-number">${speedDot}${i + 1}</div>
+        <div class="source-item-info">
+          <div class="source-item-name">${s.name} ${rankBadge}${autoPlayBadge}</div>
+          <div class="source-item-meta">
+            ${castBadge}
+            <span style="color:var(--accent);font-weight:700;">${typeLabel}</span>
+            ${speedText}
+          </div>
+        </div>
+        <svg class="source-item-arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
+        <span class="source-item-category ${categoryClass}">${categoryLabel}</span>
+      </a>
+    `;
+    }
+
     return `
       <div class="source-item focusable ${fastestClass}" 
            data-index="${i}"
@@ -6880,7 +6917,7 @@ renderSourceList(sources) {
           <div class="source-item-name">${s.name} ${rankBadge}${autoPlayBadge}</div>
           <div class="source-item-meta">
             ${castBadge}
-            <span>${s.type === 'iframe' ? 'Embed' : 'Direct'}</span>
+            <span>${typeLabel}</span>
             ${speedText}
           </div>
         </div>
@@ -6915,6 +6952,22 @@ renderSourceList(sources) {
     setTimeout(() => { TVNav.updateFocusableElements(); TVNav.setInitialFocus(); }, 100);
 },
 ///////////////////////////////////////////////////
+ onMpvSourceClick(event, index) {
+  // Keep default <a href="intent:..."> navigation (best for Android).
+  // Also store selection state; do not preventDefault.
+  this.cancelAutoSelect();
+  if (!this._pendingSources || index < 0 || index >= this._pendingSources.length) return;
+  const source = this._pendingSources[index];
+  this._pendingExternalUrl = source && source.url;
+  this._playerSources = this._pendingSources;
+  this._currentSourceIndex = index;
+  this.showToast('Opening in MPV…');
+  // Close source sheet shortly after — intent may have already left the browser
+  setTimeout(() => {
+    try { this.closeSourceSelect(false); } catch (e) {}
+  }, 400);
+},
+
  selectSource(index) {
   // Cancel auto-select when user manually picks
   this.cancelAutoSelect();
@@ -6925,6 +6978,18 @@ renderSourceList(sources) {
   }
 
   const source = this._pendingSources[index];
+
+  // Stremio / external streams → open MPV immediately on this same click
+  // (Android Chrome only allows intent:// during an active user gesture)
+  if (this.shouldOpenInMpv(source)) {
+    this._pendingExternalUrl = source.url;
+    this._playerSources = this._pendingSources;
+    this._currentSourceIndex = index;
+    this.closeSourceSelect(false);
+    this.launchMpvFromUserGesture(source.url);
+    return;
+  }
+
   this.closeSourceSelect(false);
 
   // Now open the actual player with the selected source
@@ -12178,6 +12243,53 @@ toggleVivamaxVisibility() {
     this.showToast('Opening stream on this page...');
     // Same-page navigation (no iframe)
     window.location.href = target;
+  },
+
+  shouldOpenInMpv(source) {
+    if (!source) return false;
+    if (source.type === 'torrent' || source.type === 'youtube') return false;
+    if (source.type === 'external') return true;
+    if (source.addonId || source.addonName) return true;
+    if (source.raw && source.raw.behaviorHints && source.raw.behaviorHints.notWebReady) return true;
+    if (source.name && String(source.name).indexOf(' · ') !== -1 && source.raw) return true;
+    return false;
+  },
+
+  // Call ONLY from a real click/tap handler (same stack as the event)
+  launchMpvFromUserGesture(url) {
+    const target = url || this._pendingExternalUrl;
+    if (!target) {
+      this.showToast('No stream URL');
+      return;
+    }
+    this._pendingExternalUrl = target;
+    const isAndroid = /android/i.test(navigator.userAgent || '');
+    const intents = this.buildMpvIntents(target);
+
+    if (isAndroid && intents.length) {
+      this.showToast('Opening in MPV…');
+      // Synchronous — keeps user gesture for Chrome
+      try {
+        window.location.href = intents[0];
+      } catch (e) {
+        try {
+          const a = document.createElement('a');
+          a.href = intents[0];
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        } catch (e2) {}
+      }
+      // If intent fails (no app), show single retry button after a short delay
+      setTimeout(() => {
+        // Only show UI if we're still in the document / not backgrounded long
+        this.showMpvTapToOpen(target);
+      }, 800);
+      return;
+    }
+
+    // Desktop
+    this.openStreamInMpv(target);
   },
 
   // Build Android intent:// URLs for MPV (is.xyz.mpv)
