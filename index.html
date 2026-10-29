@@ -15,7 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
-<script id="webtorrent-script" src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
+<script id="webtorrent-script" src="https://cdnjs.cloudflare.com/ajax/libs/webtorrent/0.108.0/webtorrent.min.js"></script>
 <script>
   // Check if WebTorrent is already loaded (in case of cache)
   if (typeof WebTorrent !== 'undefined') {
@@ -3518,6 +3518,7 @@ body:not(.home-hidden) #rotatingBanner {
       <a onclick="app.setTab('anime')">⭐ Anime</a>
       <a onclick="app.setTab('korean')">🇰🇷 Korean</a>
      <a onclick="app.showXXX()">🔞 XXX</a>
+      <a onclick="app.setTab('more')">🧩 Stremio Addons</a>
     </div>
   </div>
 </div>
@@ -3956,6 +3957,58 @@ body:not(.home-hidden) #rotatingBanner {
   </select>
   <div id="favoriteSourceStatus" style="font-size:12px;color:var(--text-muted);"></div>
 </div>
+
+<!-- ===== STREMIO ADDON MANAGER ===== -->
+<div class="back-btn focusable" style="padding:16px;background:var(--bg-card);border-radius:var(--radius-md);border:1px solid var(--border);flex-direction:column;align-items:stretch;gap:12px;margin-top:8px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;">
+    <span style="font-size:15px;font-weight:800;color:var(--accent);">🧩 Stremio Addons</span>
+    <span id="stremioAddonCount" style="font-size:12px;color:var(--text-muted);">0 installed</span>
+  </div>
+
+  <!-- Master ON/OFF switch -->
+  <button id="stremioEnabledToggle" onclick="app.toggleStremioEnabled()" 
+    style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:12px 14px;background:var(--bg);border:1px solid var(--border);border-radius:10px;cursor:pointer;font-family:inherit;color:var(--text);">
+    <span id="stremioEnabledText" style="font-size:14px;font-weight:700;">Stremio Addons: ON</span>
+    <span style="font-size:11px;color:var(--text-muted);">Tap to toggle</span>
+  </button>
+
+  <p style="font-size:12px;color:var(--text-muted);margin:0;line-height:1.4;">
+    Add any Stremio stream addon by pasting its manifest URL. Streams from these addons will appear first in the source list.
+  </p>
+
+  <!-- Add new addon -->
+  <div style="display:flex;gap:8px;">
+    <input id="stremioManifestInput" type="text" placeholder="https://torrentio.strem.fun/manifest.json"
+      style="flex:1;padding:11px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:inherit;font-size:13px;outline:none;"
+      onkeydown="if(event.key==='Enter')app.addStremioFromInput()">
+    <button onclick="app.addStremioFromInput()" 
+      style="padding:11px 16px;background:var(--accent);color:#000;border:none;border-radius:var(--radius-sm);font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;white-space:nowrap;">
+      Add
+    </button>
+  </div>
+
+  <!-- Quick presets -->
+  <div style="display:flex;flex-wrap:wrap;gap:6px;">
+    <button onclick="app.quickAddStremio('https://torrentio.strem.fun/manifest.json')" 
+      style="padding:6px 10px;background:rgba(200,255,0,0.12);border:1px solid rgba(200,255,0,0.3);border-radius:20px;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">
+      Torrentio
+    </button>
+    <button onclick="app.quickAddStremio('https://torrentio.strem.fun/qualityfilter=480p,scr,cam/manifest.json')" 
+      style="padding:6px 10px;background:rgba(200,255,0,0.12);border:1px solid rgba(200,255,0,0.3);border-radius:20px;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">
+      Torrentio (HQ)
+    </button>
+    <button onclick="app.quickAddStremio('https://comet.fast/manifest.json')" 
+      style="padding:6px 10px;background:rgba(200,255,0,0.12);border:1px solid rgba(200,255,0,0.3);border-radius:20px;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">
+      Comet
+    </button>
+  </div>
+
+  <!-- Installed list -->
+  <div id="stremioAddonsList" style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;">
+    <!-- populated by JS -->
+  </div>
+</div>
+
    <button class="back-btn focusable" id="iframeToggleBtn2" style="justify-content:flex-start;width:100%;padding:16px;font-size:15px;" onclick="app.toggleAdultVisibility()">
        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
@@ -4340,6 +4393,25 @@ body:not(.home-hidden) #rotatingBanner {
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
+
+<!-- Stremio check progress -->
+<div id="stremioProgressOverlay" style="
+  display:none;position:fixed;left:50%;bottom:100px;transform:translateX(-50%);
+  z-index:4500;min-width:280px;max-width:90vw;padding:14px 18px;
+  background:rgba(20,20,20,0.92);backdrop-filter:blur(16px);
+  border:1px solid rgba(255,255,255,0.12);border-radius:14px;
+  box-shadow:0 10px 40px rgba(0,0,0,0.5);font-family:inherit;
+">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:12px;">
+    <span id="stremioProgressLabel" style="font-size:13px;font-weight:700;color:#fff;">Checking Stremio addons...</span>
+    <span id="stremioProgressCount" style="font-size:12px;font-weight:700;color:var(--accent);white-space:nowrap;">0/0</span>
+  </div>
+  <div style="height:6px;background:rgba(255,255,255,0.1);border-radius:4px;overflow:hidden;">
+    <div id="stremioProgressBar" style="height:100%;width:0%;background:var(--accent);border-radius:4px;transition:width 0.25s ease;"></div>
+  </div>
+  <div id="stremioProgressDetail" style="font-size:11px;color:var(--text-muted);margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+</div>
+
 
 <script>
 const splash = document.getElementById('splash-screen');
@@ -4785,7 +4857,7 @@ const TorrentPlayer = {
     return null;
   },
 
- playMagnet(input, title = 'Torrent Stream') {
+  playMagnet(input, title = 'Torrent Stream') {
     const uri = this.normalize(input);
     if (!uri) { app.showToast('Invalid magnet / hash'); return; }
 
@@ -4810,15 +4882,7 @@ const TorrentPlayer = {
 
     const statusEl = document.getElementById('torrentStatus');
 
-    // Timeout check for zero WebRTC peers
-    let peerTimeout = setTimeout(() => {
-      if (this.torrent && this.torrent.numPeers === 0 && statusEl) {
-        statusEl.innerHTML = `⚠️ 0 WebRTC peers found.<br><small style="font-size:11px;color:#f59e0b;">Standard magnets often fail in browsers. Use WebTorrent-seeded or hybrid magnets.</small>`;
-      }
-    }, 12000);
-
     this.ensureClient().add(uri, { announce: this._extraAnnounce }, torrent => {
-      clearTimeout(peerTimeout);
       this.torrent = torrent;
       const exts = ['.mp4', '.m4v', '.webm', '.mkv', '.avi', '.mov', '.ts'];
       this._videos = torrent.files.filter(f => exts.some(e => f.name.toLowerCase().endsWith(e)));
@@ -4963,37 +5027,27 @@ toggleIframeBlocker() {
 },
 	///////////////////
 	///////////////
-openTorrentModal() {
-    const m = document.getElementById('torrentModal');
-    if (!m) return;
-    m.style.display = 'flex';
-    m.classList.add('open');
-    document.body.style.overflow = 'hidden';
-    this.pushHistory({ page: 'torrentModal' });
-    setTimeout(() => document.getElementById('torrentInput')?.focus(), 100);
-  },
+	openTorrentModal() {
+  const m = document.getElementById('torrentModal');
+  m.classList.add('open');
+  document.body.style.overflow = 'hidden';
+  this.pushHistory({ page: 'torrentModal' });
+  setTimeout(() => document.getElementById('torrentInput').focus(), 100);
+},
 
-  closeTorrentModal(useHistory = true) {
-    const m = document.getElementById('torrentModal');
-    if (!m) return;
-    m.classList.add('closing');
-    setTimeout(() => { 
-      m.classList.remove('open', 'closing'); 
-      m.style.display = 'none';
-      document.body.style.overflow = ''; 
-    }, 400);
-    if (useHistory) history.back();
-  },
+closeTorrentModal(useHistory = true) {
+  const m = document.getElementById('torrentModal');
+  if (!m) return;
+  m.classList.add('closing');
+  setTimeout(() => { m.classList.remove('open', 'closing'); document.body.style.overflow = ''; }, 400);
+  if (useHistory) history.back();
+},
 
-  playTorrentFromModal() {
-    const input = document.getElementById('torrentInput')?.value;
-    if (!input) {
-      this.showToast('Please enter a valid magnet link');
-      return;
-    }
-    this.closeTorrentModal();
-    setTimeout(() => TorrentPlayer.playMagnet(input, 'Custom Torrent'), 350);
-  },
+playTorrentFromModal() {
+  const input = document.getElementById('torrentInput').value;
+  this.closeTorrentModal();
+  setTimeout(() => TorrentPlayer.playMagnet(input, 'Custom Torrent'), 350);
+},
 	
 	///////////
 	setMatchRing(percent) {
@@ -6962,6 +7016,9 @@ async init() {
     }
     this._injectPlayerStyles();
 
+    // Install default Stremio addons if missing (e.g. Pengu)
+    this.ensureDefaultStremioAddons().catch(e => console.warn('Default Stremio addons:', e));
+
     // Reload profiles from localStorage to ensure we have latest
     const savedProfiles = JSON.parse(localStorage.getItem('sv_profiles') || 'null');
     if (savedProfiles && Array.isArray(savedProfiles)) {
@@ -7582,7 +7639,21 @@ rows.forEach((r, i) => {
               Watch
             `;
             playBtn.style.display = 'flex';
-            playBtn.onclick = () => this.showToast('Loading stream info...');
+            playBtn.onclick = () => {
+              if (this.anilistId || this.malId) {
+                this.openEpisodePlayer(this.tvShowImdbId || ('anime_' + (this.anilistId || this.malId)), title, this.currentSeason || 1, 1);
+              } else if (this.currentDetail?.id) {
+                this.showToast('Fetching stream info...');
+                this.fetchImdbId(this.currentDetail.id, 'tv').then(imdbId => {
+                  if (imdbId) {
+                    this.tvShowImdbId = imdbId;
+                    this.openEpisodePlayer(imdbId, title, this.currentSeason || 1, 1);
+                  } else this.showToast('No stream ID available');
+                }).catch(() => this.showToast('Could not load stream info'));
+              } else {
+                this.showToast('Stream info not ready — try again');
+              }
+            };
           }
         } else if (detail.imdb_id) {
           const hist = this.getHistoryItem(detail.id, 'movie');
@@ -7599,7 +7670,21 @@ rows.forEach((r, i) => {
             Play
           `;
           playBtn.style.display = 'flex';
-          playBtn.onclick = () => app.showToast('Loading stream info...');
+          playBtn.onclick = () => {
+            if (app.anilistId || app.malId) {
+              app.openPlayer(app.currentDetail?.imdb_id || ('anime_' + (app.anilistId || app.malId)), title);
+            } else if (app.currentDetail?.id) {
+              app.showToast('Fetching stream info...');
+              app.fetchImdbId(app.currentDetail.id, app.currentDetail.media_type || 'movie').then(imdbId => {
+                if (imdbId) {
+                  app.currentDetail.imdb_id = imdbId;
+                  app.openPlayer(imdbId, title);
+                } else app.showToast('No stream ID available');
+              }).catch(() => app.showToast('Could not load stream info'));
+            } else {
+              app.showToast('Stream info not ready — try again');
+            }
+          };
         }
       }
 
@@ -7619,28 +7704,17 @@ rows.forEach((r, i) => {
     const title = detail.title || detail.name || '';
     
     if (shouldLookupAnime && title) {
-      // --- MAL ID lookup via Jikan API ---
+      // Fast parallel lookup with timeouts + cache
       try {
-        const jikanRes = await fetch(
-          `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(title)}&limit=1`
-        );
-        if (jikanRes.ok) {
-          const jikanData = await jikanRes.json();
-          if (jikanData.data && jikanData.data.length > 0) {
-            this.malId = jikanData.data[0].mal_id;
-            console.log('MAL ID found via Jikan:', this.malId, 'for', title);
-          }
+        const ids = await this.fetchAnimeIdsFast(title, detail);
+        if (ids.malId) this.malId = ids.malId;
+        if (ids.anilistId) this.anilistId = ids.anilistId;
+        if (ids.malId || ids.anilistId) {
+          console.log('Anime IDs ready:', { mal: this.malId, anilist: this.anilistId, title });
         }
-      } catch (e) { }
-      
-      // --- Anilist ID lookup ---
-      try {
-        const anilistId = await this.fetchAnilistId(title);
-        if (anilistId) {
-          this.anilistId = anilistId;
-          console.log('Anilist ID found:', this.anilistId, 'for', title);
-        }
-      } catch (e) {  }
+      } catch (e) {
+        console.warn('Anime ID lookup failed:', e);
+      }
     } else {
       console.log('Skipping anime lookup - not anime content');
     }
@@ -8035,22 +8109,42 @@ rows.forEach((r, i) => {
   },
 
   playEpisode(seasonNum, episodeNum) {
-    if (!this.tvShowImdbId) {
-      this.showToast('Loading stream info...');
-      return;
-    }
     const title = this.currentDetail?.title || this.currentDetail?.name || '';
     this.currentEpisode = { season: seasonNum, episode: episodeNum };
-    this.openEpisodePlayer(this.tvShowImdbId, title, seasonNum, episodeNum);
+
+    // Prefer IMDb; fall back to anilist/mal for anime; otherwise try to fetch
+    if (this.tvShowImdbId) {
+      this.openEpisodePlayer(this.tvShowImdbId, title, seasonNum, episodeNum);
+      return;
+    }
+    if (this.anilistId || this.malId) {
+      // Anime without IMDb — still open player (anime sources use anilist/mal)
+      this.openEpisodePlayer(this.tvShowImdbId || ('anime_' + (this.anilistId || this.malId)), title, seasonNum, episodeNum);
+      return;
+    }
+    // Last resort: try fetch IMDb then play
+    if (this.currentDetail?.id) {
+      this.showToast('Fetching stream info...');
+      this.fetchImdbId(this.currentDetail.id, 'tv').then(imdbId => {
+        if (imdbId) {
+          this.tvShowImdbId = imdbId;
+          this.openEpisodePlayer(imdbId, title, seasonNum, episodeNum);
+        } else {
+          this.showToast('No stream ID available yet — try again');
+        }
+      }).catch(() => this.showToast('Could not load stream info'));
+      return;
+    }
+    this.showToast('Stream info not ready — try again in a moment');
   },
 
   async openEpisodePlayer(imdbId, title, season, episode) {
     const tv_sources = [
-	{
-	    name: 'play4u',
-        url: `https://play4u.org/series/${imdbId}/s-${season}/ep-${episode}`,
+		{
+          name: 'play4u',
+        url: `https://play4u.org/series/${imdbId}/s-0${season}/ep-0${episode}`,
         type: 'iframe',
-		category: 'tv'
+            category: 'tv'
       },
 		{
 	    name: 'atlantic',
@@ -8921,10 +9015,31 @@ rows.forEach((r, i) => {
 
     const isAnime = !!(this.anilistId || this.malId);
     const contentType = isAnime ? 'anime' : 'tv';
-    const filteredSources = tv_sources.filter(s => {
+    let filteredSources = tv_sources.filter(s => {
       if (!s.category) return true;
       return s.category === contentType;
     });
+
+    // ===== STREMIO STREAMS =====
+    if (this.isStremioEnabled() && this.getInstalledStremioAddons().length > 0 && this.isValidImdbId(imdbId)) {
+      try {
+        // Stremio series id format: ttXXXXXXX:season:episode
+        const stremioId = imdbId + ':' + season + ':' + episode;
+        const stremioStreams = await this.fetchStremioStreams('series', stremioId, {
+          timeoutMs: 15000,
+          maxWaitMs: 18000
+        });
+        if (stremioStreams && stremioStreams.length) {
+          filteredSources = [...stremioStreams, ...filteredSources];
+          this.showToast('Found ' + stremioStreams.length + ' Stremio source(s)');
+          console.log('Stremio TV streams added:', stremioStreams.length);
+        }
+      } catch (e) {
+        console.warn('Stremio TV fetch failed:', e);
+        this.hideStremioProgress();
+      }
+    }
+    // ===== END STREMIO =====
 
     if (filteredSources.length === 0) {
       this.showToast('No sources available');
@@ -8934,11 +9049,11 @@ rows.forEach((r, i) => {
     // Initialize currentPlayItem
     const existingItem = this.currentPlayItem;
     this.currentPlayItem = {
-      id: existingItem?.id || this.currentDetail?.id || null,
+      id: existingItem?.id || this.currentDetail?.id || null, // TMDB
       type: existingItem?.type || 'tv',
       title: title,
       poster: existingItem?.poster || this.currentDetail?.poster_path || null,
-      imdbId: imdbId,
+      imdbId: this.isValidImdbId(imdbId) ? imdbId : (existingItem?.imdbId || null),
       anilistId: this.anilistId || existingItem?.anilistId || null,
       season: season,
       episode: episode,
@@ -9046,51 +9161,12 @@ rows.forEach((r, i) => {
     const nextBtn = document.getElementById('nextSourceBtn');
     if (nextBtn) nextBtn.style.display = sources.length > 1 ? 'flex' : 'none';
 
-    // Build the selected source URL
-    let initialUrl = sources[selectedIndex].url;
-    if (sources[selectedIndex].name === 'vidlink' && this.currentPlayItem) {
-      const resumeTime = this.getVidLinkResumeTime(this.currentPlayItem);
-      initialUrl = this.buildVidLinkUrl(initialUrl, resumeTime);
-    }
-
-    playerContent.innerHTML = `
-      <div id="playerContainer" style="width:100%;height:100%;position:relative;background:#000;">
-        <iframe id="playerFrame" 
-          src="${initialUrl}" 
-          style="width:100%;height:100%;border:none;display:block;" 
-          allow="accelerometer; autoplay; encrypted-media; fullscreen; gyroscope; picture-in-picture" 
-          allowfullscreen
-        ></iframe>
-		   <!-- POPUP BLOCKER -->
-    <div class="iframe-overlay" id="iframeBlocker" onclick="app.toggleIframeBlocker()"></div>
-  </div>
-      </div>
-    `;
-
-    // Hide loading
-    playerLoading.style.display = 'none';
+    // Load the selected source (supports iframe / torrent / direct url / youtube)
+    const selectedSource = sources[selectedIndex];
+    await this.loadSourceIntoPlayer(selectedSource, playerContent, playerLoading);
 
     // Start progress tracking
     this.startVidLinkProgressTracking();
-
-    // Handle iframe load
-    const iframe = document.getElementById('playerFrame');
-    if (iframe) {
-     iframe.onload = () => {
-  playerLoading.style.display = 'none';
-  // Activate popup blocker for the first 10 seconds after load
-  // (this is when iframe sources trigger their popup/tab redirects)
-  const blocker = document.getElementById('iframeBlocker');
-  if (blocker) {
-    blocker.classList.add('active');
-    clearTimeout(this._blockerTimer);
-    this._blockerTimer = setTimeout(() => blocker.classList.remove('active'), 10000);
-  }
-};
-      setTimeout(() => {
-        playerLoading.style.display = 'none';
-      }, 6000);
-    }
   },
 //////////////////////////
     closeDetail(useHistory = true) {
@@ -9372,14 +9448,31 @@ modalList.querySelectorAll('.episode-modal-item').forEach((item, index, items) =
   },
 
   playEpisodeFromModal(seasonNum, episodeNum) {
-    if (!this.tvShowImdbId) {
-      this.showToast('Loading stream info...');
-      return;
-    }
     const title = this.currentDetail?.title || this.currentDetail?.name || '';
     this.currentEpisode = { season: seasonNum, episode: episodeNum };
     this.closeEpisodeModal(false);
-    this.openEpisodePlayer(this.tvShowImdbId, title, seasonNum, episodeNum);
+
+    if (this.tvShowImdbId) {
+      this.openEpisodePlayer(this.tvShowImdbId, title, seasonNum, episodeNum);
+      return;
+    }
+    if (this.anilistId || this.malId) {
+      this.openEpisodePlayer(this.tvShowImdbId || ('anime_' + (this.anilistId || this.malId)), title, seasonNum, episodeNum);
+      return;
+    }
+    if (this.currentDetail?.id) {
+      this.showToast('Fetching stream info...');
+      this.fetchImdbId(this.currentDetail.id, 'tv').then(imdbId => {
+        if (imdbId) {
+          this.tvShowImdbId = imdbId;
+          this.openEpisodePlayer(imdbId, title, seasonNum, episodeNum);
+        } else {
+          this.showToast('No stream ID available yet — try again');
+        }
+      }).catch(() => this.showToast('Could not load stream info'));
+      return;
+    }
+    this.showToast('Stream info not ready — try again in a moment');
   },
 
   closeEpisodeModal(useHistory = true) {
@@ -9731,6 +9824,8 @@ this.currentTab = tab;
     setTimeout(() => { 
 	this.populateFavoriteSourceDropdown();
     this.updateFavoriteSourceUI();
+    this.renderStremioAddonsList();   // refresh Stremio addon list
+    this.updateStremioToggleUI();     // sync ON/OFF button
 	
 	TVNav.updateFocusableElements(); TVNav.setInitialFocus(); }, 300);
   },
@@ -10637,10 +10732,20 @@ setVivamaxFilter(filter) {
   },
   
   ////
+// ===== FAST ANIME ID LOOKUP (parallel + timeout + cache) =====
+_animeIdCache: {},
+
+_fetchWithTimeout(url, options = {}, ms = 4000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+},
+
 async fetchAnilistId(title) {
   if (!title) return null;
   try {
-    const res = await fetch('https://graphql.anilist.co', {
+    const res = await this._fetchWithTimeout('https://graphql.anilist.co', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -10649,31 +10754,103 @@ async fetchAnilistId(title) {
       body: JSON.stringify({
         query: `
           query ($search: String) {
-            Media(search: $search, type: ANIME, sort: POPULARITY_DESC) {
+            Media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
               id
-              title {
-                romaji
-                english
-              }
+              idMal
+              title { romaji english native }
             }
           }
         `,
         variables: { search: title }
       })
-    });
+    }, 4000);
     if (!res.ok) {
       console.log('AniList API error:', res.status);
       return null;
     }
     const data = await res.json();
     if (data.data && data.data.Media) {
-      return data.data.Media.id;
+      return data.data.Media;
     }
   } catch (e) {
     console.log('Anilist lookup failed:', e.message);
   }
   return null;
 },
+
+async fetchMalIdJikan(title) {
+  if (!title) return null;
+  try {
+    const res = await this._fetchWithTimeout(
+      'https://api.jikan.moe/v4/anime?q=' + encodeURIComponent(title) + '&limit=1',
+      {},
+      3500
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.data && data.data.length > 0) {
+      return data.data[0].mal_id;
+    }
+  } catch (e) {
+    console.log('Jikan lookup failed:', e.message);
+  }
+  return null;
+},
+
+/**
+ * Parallel Anilist + Jikan with cache.
+ * Anilist often also returns idMal, so we can skip Jikan when that works.
+ */
+async fetchAnimeIdsFast(title, detail = null) {
+  const cacheKey = (title || '').toLowerCase().trim();
+  if (cacheKey && this._animeIdCache[cacheKey]) {
+    return this._animeIdCache[cacheKey];
+  }
+  // also check localStorage cache (persists across sessions)
+  try {
+    const stored = JSON.parse(localStorage.getItem('sv_anime_id_cache') || '{}');
+    if (stored[cacheKey] && (Date.now() - (stored[cacheKey].ts || 0) < 7 * 24 * 60 * 60 * 1000)) {
+      this._animeIdCache[cacheKey] = { malId: stored[cacheKey].malId, anilistId: stored[cacheKey].anilistId };
+      return this._animeIdCache[cacheKey];
+    }
+  } catch (e) {}
+
+  let anilistId = null;
+  let malId = null;
+
+  // Run both in parallel; Anilist is usually faster and often includes idMal
+  const [anilistResult, jikanResult] = await Promise.allSettled([
+    this.fetchAnilistId(title),
+    this.fetchMalIdJikan(title)
+  ]);
+
+  if (anilistResult.status === 'fulfilled' && anilistResult.value) {
+    const media = anilistResult.value;
+    anilistId = media.id || null;
+    // Anilist often returns MAL id too — prefer it
+    if (media.idMal) malId = media.idMal;
+  }
+  if (!malId && jikanResult.status === 'fulfilled' && jikanResult.value) {
+    malId = jikanResult.value;
+  }
+
+  const result = { anilistId, malId };
+  if (cacheKey && (anilistId || malId)) {
+    this._animeIdCache[cacheKey] = result;
+    try {
+      const stored = JSON.parse(localStorage.getItem('sv_anime_id_cache') || '{}');
+      stored[cacheKey] = { ...result, ts: Date.now() };
+      // keep cache from growing forever
+      const keys = Object.keys(stored);
+      if (keys.length > 200) {
+        keys.slice(0, keys.length - 150).forEach(k => delete stored[k]);
+      }
+      localStorage.setItem('sv_anime_id_cache', JSON.stringify(stored));
+    } catch (e) {}
+  }
+  return result;
+},
+
   //////
   clearHistory() {
     if (this.watchHistory.length === 0) {
@@ -10939,26 +11116,61 @@ toggleVivamaxVisibility() {
       </div>`;
   },
 
+  // Normalize / resolve a real IMDb id (tt....) for Stremio + embeds
+  isValidImdbId(id) {
+    return !!(id && typeof id === 'string' && /^tt\d+$/i.test(id.trim()));
+  },
+
+  async resolveImdbIdForPlay(tmdbId, type, existingImdb) {
+    if (this.isValidImdbId(existingImdb)) return existingImdb.trim();
+    // Sometimes history stored TMDB id in imdb field by mistake
+    if (existingImdb && /^\d+$/.test(String(existingImdb))) {
+      // ignore numeric-only "imdb"
+    }
+    if (!tmdbId) return null;
+    try {
+      const imdb = await this.fetchImdbId(tmdbId, type === 'tv' ? 'tv' : 'movie');
+      return this.isValidImdbId(imdb) ? imdb : null;
+    } catch (e) {
+      console.warn('resolveImdbIdForPlay failed', e);
+      return null;
+    }
+  },
+
   attachContinueWatchingHandlers() {
     document.querySelectorAll('#grid-continue .card').forEach(card => {
-      card.addEventListener('click', () => {
+      card.addEventListener('click', async () => {
         const id = parseInt(card.dataset.id);
         const type = card.dataset.type;
         const season = card.dataset.season ? parseInt(card.dataset.season) : null;
         const episode = card.dataset.episode ? parseInt(card.dataset.episode) : null;
-        const imdbId = card.dataset.imdb || '';
+        let imdbId = card.dataset.imdb || '';
         const anilistId = card.dataset.anilist || '';
         const title = card.querySelector('.card-title-text')?.textContent || '';
         const progress = parseInt(card.dataset.progress || '0');
         const duration = parseInt(card.dataset.duration || '0');
 
+        // Always resolve a real tt... IMDb id (Continue Watching often has TMDB id only)
+        if (!this.isValidImdbId(imdbId)) {
+          this.showToast('Resolving stream ID...');
+          imdbId = await this.resolveImdbIdForPlay(id, type, imdbId) || '';
+          // Persist corrected imdbId back into history so next time is instant
+          if (this.isValidImdbId(imdbId)) {
+            const hist = this.getHistoryItem(id, type, season, episode);
+            if (hist) {
+              hist.imdbId = imdbId;
+              this.saveHistoryItem(hist);
+            }
+          }
+        }
+
         // Pre-set currentPlayItem so resume time works correctly
         this.currentPlayItem = {
-          id: id,
+          id: id,           // TMDB id
           type: type,
           title: title,
           poster: null,
-          imdbId: imdbId,
+          imdbId: imdbId,   // real IMDb tt...
           anilistId: anilistId,
           season: season,
           episode: episode,
@@ -10968,10 +11180,18 @@ toggleVivamaxVisibility() {
         this.vidlinkCurrentProgress = progress;
         this.vidlinkDuration = duration;
 
-        if (type === 'tv' && season != null && episode != null && imdbId) {
-          this.openEpisodePlayer(imdbId, title, season, episode);
-        } else if (imdbId) {
+        if (type === 'tv' && season != null && episode != null) {
+          if (this.isValidImdbId(imdbId)) {
+            this.openEpisodePlayer(imdbId, title, season, episode);
+          } else if (anilistId) {
+            this.openEpisodePlayer('anime_' + anilistId, title, season, episode);
+          } else {
+            this.openDetail(id, type);
+          }
+        } else if (this.isValidImdbId(imdbId)) {
           this.openPlayer(imdbId, title);
+        } else if (anilistId) {
+          this.openPlayer('anime_' + anilistId, title);
         } else {
           this.openDetail(id, type);
         }
@@ -11139,16 +11359,14 @@ toggleVivamaxVisibility() {
   async openPlayer(imdbId, title, tmdbId) {
     // Build sources (same as before)
     const movie_sources = [
-		
 		{
-	   name: 'play4u',
+         name: 'play4u',
         url: `https://play4u.org/${imdbId}`,
         type: 'iframe',
-		category: 'movie'
+            category: 'movie'
       },
-		
 		{
-	   name: 'atlantic.',
+	   name: 'atlantic',
         url: `https://atlantic.st/watch/${this.currentDetail?.id}`,
         type: 'iframe',
 		category: 'movie'
@@ -11884,10 +12102,29 @@ toggleVivamaxVisibility() {
     
     const isAnime = !!(this.anilistId || this.malId);
     const contentType = isAnime ? 'anime' : 'movie';
-    const filteredSources = movie_sources.filter(s => {
+    let filteredSources = movie_sources.filter(s => {
       if (!s.category) return true;
       return s.category === contentType;
     });
+
+    // ===== STREMIO STREAMS =====
+    if (this.isStremioEnabled() && this.getInstalledStremioAddons().length > 0 && this.isValidImdbId(imdbId)) {
+      try {
+        const stremioStreams = await this.fetchStremioStreams('movie', imdbId, {
+          timeoutMs: 15000,
+          maxWaitMs: 18000
+        });
+        if (stremioStreams && stremioStreams.length) {
+          filteredSources = [...stremioStreams, ...filteredSources];
+          this.showToast('Found ' + stremioStreams.length + ' Stremio source(s)');
+          console.log('Stremio streams added:', stremioStreams.length);
+        }
+      } catch (e) {
+        console.warn('Stremio fetch failed:', e);
+        this.hideStremioProgress();
+      }
+    }
+    // ===== END STREMIO =====
 
     if (filteredSources.length === 0) {
       this.showToast('No sources available');
@@ -11897,11 +12134,11 @@ toggleVivamaxVisibility() {
     // Initialize currentPlayItem
     const existingItem = this.currentPlayItem;
     this.currentPlayItem = {
-      id: existingItem?.id || this.currentDetail?.id || null,
+      id: existingItem?.id || this.currentDetail?.id || null, // TMDB
       type: existingItem?.type || 'movie',
       title: title,
       poster: existingItem?.poster || this.currentDetail?.poster_path || null,
-      imdbId: imdbId,
+      imdbId: this.isValidImdbId(imdbId) ? imdbId : (existingItem?.imdbId || null),
       anilistId: this.anilistId || existingItem?.anilistId || null,
       season: undefined,
       episode: undefined,
@@ -11921,6 +12158,103 @@ toggleVivamaxVisibility() {
     }
     // ===== END FAVORITE SOURCE =====
     this.showSourceSelect(filteredSources, title, false, null, null, imdbId);
+  },
+
+
+  // Load a source (iframe / direct url / torrent / youtube) into the player
+  async loadSourceIntoPlayer(source, playerContent, playerLoading) {
+    if (!source || !playerContent) return;
+
+    // Always clean previous torrent before loading a new source
+    if (typeof TorrentPlayer !== 'undefined' && TorrentPlayer.stop) {
+      try { TorrentPlayer.stop(); } catch(e) {}
+    }
+
+    playerContent.innerHTML = '';
+    if (playerLoading) playerLoading.style.display = 'flex';
+
+    const type = source.type || 'iframe';
+
+    if (type === 'torrent') {
+      // Use the existing robust TorrentPlayer (WebRTC + extra trackers)
+      if (playerLoading) playerLoading.style.display = 'none';
+      const title = (this.currentPlayItem && this.currentPlayItem.title) || source.name || 'Torrent Stream';
+      // TorrentPlayer opens the playerPage itself and handles everything
+      if (typeof TorrentPlayer !== 'undefined' && TorrentPlayer.playMagnet) {
+        TorrentPlayer.playMagnet(source.url, title);
+      } else {
+        this.showToast('WebTorrent not available');
+      }
+      return;
+    }
+
+    if (type === 'url' || type === 'youtube') {
+      // Direct video or YouTube
+      const container = document.createElement('div');
+      container.id = 'playerContainer';
+      container.style.cssText = 'width:100%;height:100%;position:relative;background:#000;';
+
+      if (type === 'youtube' || (source.url && source.url.includes('youtube.com'))) {
+        // YouTube embed
+        const ytId = source.url.match(/(?:v=|youtu\.be\/)([\w-]{11})/)?.[1] || source.raw?.ytId;
+        const iframe = document.createElement('iframe');
+        iframe.id = 'playerFrame';
+        iframe.src = ytId ? `https://www.youtube.com/embed/${ytId}?autoplay=1` : source.url;
+        iframe.style.cssText = 'width:100%;height:100%;border:none;';
+        iframe.allow = 'accelerometer; autoplay; encrypted-media; fullscreen; gyroscope; picture-in-picture';
+        iframe.allowFullscreen = true;
+        container.appendChild(iframe);
+      } else {
+        // HTML5 video
+        const video = document.createElement('video');
+        video.id = 'playerVideo';
+        video.controls = true;
+        video.autoplay = true;
+        video.src = source.url;
+        video.style.cssText = 'width:100%;height:100%;object-fit:contain;';
+        container.appendChild(video);
+      }
+      playerContent.appendChild(container);
+      if (playerLoading) {
+        setTimeout(() => playerLoading.style.display = 'none', 1500);
+      }
+      return;
+    }
+
+    // Default: iframe (existing behavior)
+    let initialUrl = source.url;
+    if (source.name && source.name.includes('vidlink') && this.currentPlayItem) {
+      const resumeTime = this.getVidLinkResumeTime(this.currentPlayItem);
+      initialUrl = this.buildVidLinkUrl(initialUrl, resumeTime);
+    }
+
+    playerContent.innerHTML = `
+      <div id="playerContainer" style="width:100%;height:100%;position:relative;background:#000;">
+        <iframe id="playerFrame" 
+          src="${initialUrl}" 
+          style="width:100%;height:100%;border:none;display:block;" 
+          allow="accelerometer; autoplay; encrypted-media; fullscreen; gyroscope; picture-in-picture" 
+          allowfullscreen
+        ></iframe>
+        <div class="iframe-overlay" id="iframeBlocker" onclick="app.toggleIframeBlocker()"></div>
+      </div>
+    `;
+
+    const iframe = document.getElementById('playerFrame');
+    if (iframe) {
+      iframe.onload = () => {
+        if (playerLoading) playerLoading.style.display = 'none';
+        const blocker = document.getElementById('iframeBlocker');
+        if (blocker) {
+          blocker.classList.add('active');
+          clearTimeout(this._blockerTimer);
+          this._blockerTimer = setTimeout(() => blocker.classList.remove('active'), 10000);
+        }
+      };
+    }
+    setTimeout(() => {
+      if (playerLoading) playerLoading.style.display = 'none';
+    }, 6000);
   },
 
   // Direct player open (after source selected)
@@ -12006,55 +12340,16 @@ toggleVivamaxVisibility() {
     const nextBtn = document.getElementById('nextSourceBtn');
     if (nextBtn) nextBtn.style.display = sources.length > 1 ? 'flex' : 'none';
 
-    // Build the selected source URL
-    let initialUrl = sources[selectedIndex].url;
-    if (sources[selectedIndex].name === 'vidlink' && this.currentPlayItem) {
-      const resumeTime = this.getVidLinkResumeTime(this.currentPlayItem);
-      initialUrl = this.buildVidLinkUrl(initialUrl, resumeTime);
-    }
+    // Load the selected source (supports iframe / torrent / direct url / youtube)
+    const selectedSource = sources[selectedIndex];
+    await this.loadSourceIntoPlayer(selectedSource, playerContent, playerLoading);
 
-    playerContent.innerHTML = `
-      <div id="playerContainer" style="width:100%;height:100%;position:relative;background:#000;">
-        <iframe id="playerFrame" 
-          src="${initialUrl}" 
-          style="width:100%;height:100%;border:none;display:block;" 
-          allow="accelerometer; autoplay; encrypted-media; fullscreen; gyroscope; picture-in-picture" 
-          allowfullscreen
-        ></iframe>
-		   <!-- POPUP BLOCKER -->
-    <div class="iframe-overlay" id="iframeBlocker" onclick="app.toggleIframeBlocker()"></div>
-  </div>
-      </div>
-    `;
-
-    // Hide loading
-    playerLoading.style.display = 'none';
-
-    // Start progress tracking
+    // Start progress tracking (for VidLink mostly)
     this.startVidLinkProgressTracking();
-
-    // Handle iframe load
-    const iframe = document.getElementById('playerFrame');
-    if (iframe) {
-   iframe.onload = () => {
-  playerLoading.style.display = 'none';
-  // Activate popup blocker for the first 10 seconds after load
-  // (this is when iframe sources trigger their popup/tab redirects)
-  const blocker = document.getElementById('iframeBlocker');
-  if (blocker) {
-    blocker.classList.add('active');
-    clearTimeout(this._blockerTimer);
-    this._blockerTimer = setTimeout(() => blocker.classList.remove('active'), 10000);
-  }
-};
-      setTimeout(() => {
-        playerLoading.style.display = 'none';
-      }, 6000);
-    }
   },
 /////////////////////
   // Switch between video sources
-    switchPlayerSource(index, isAutoFailover = false) {
+    async switchPlayerSource(index, isAutoFailover = false) {
     index = parseInt(index, 10);
     
     if (!this._playerSources || index < 0 || index >= this._playerSources.length) {
@@ -12064,6 +12359,7 @@ toggleVivamaxVisibility() {
 
     const source = this._playerSources[index];
     const playerLoading = document.getElementById('playerLoading');
+    const playerContent = document.getElementById('playerContent');
     const failedOverlay = document.getElementById('sourceFailedOverlay');
     if (failedOverlay) failedOverlay.remove();
 
@@ -12085,46 +12381,8 @@ toggleVivamaxVisibility() {
       if (span) span.textContent = `Loading ${source.name}...`;
     }
 
-    // Build URL with resume support
-    let url = source.url;
-    if (source.name === 'vidlink' && this.currentPlayItem) {
-      const resumeTime = this.getVidLinkResumeTime(this.currentPlayItem);
-      url = this.buildVidLinkUrl(source.url, resumeTime);
-    }
-
-    // Change iframe src
-    const iframe = document.getElementById('playerFrame');
-    if (iframe) {
-      iframe.src = url;
-iframe.onload = () => {
-  playerLoading.style.display = 'none';
-  // Activate popup blocker for the first 10 seconds after load
-  // (this is when iframe sources trigger their popup/tab redirects)
-  const blocker = document.getElementById('iframeBlocker');
-  if (blocker) {
-    blocker.classList.add('active');
-    clearTimeout(this._blockerTimer);
-    this._blockerTimer = setTimeout(() => blocker.classList.remove('active'), 10000);
-  }
-};
-      iframe.onerror = () => {
-        console.log('Iframe error, source may have failed');
-      };
-    }
-
-    // Auto-hide loading fallback
-    setTimeout(() => {
-      if (playerLoading) playerLoading.style.display = 'none';
-    }, 6000);
-	
-	/////////////
-	const blocker = document.getElementById('iframeBlocker');
-if (blocker) {
-  blocker.classList.add('active');
-  clearTimeout(this._blockerTimer);
-  this._blockerTimer = setTimeout(() => blocker.classList.remove('active'), 10000);
-}
-	///////////
+    // Use the unified loader (handles iframe / torrent / direct url / youtube)
+    await this.loadSourceIntoPlayer(source, playerContent, playerLoading);
   },
 ////////////////////////
   // Source button styles (injected dynamically)
@@ -12212,6 +12470,10 @@ if (blocker) {
 
         this.saveHistoryItem({
         ...this.currentPlayItem,
+        // Keep TMDB in id; ensure imdbId is a real tt... when available
+        imdbId: this.isValidImdbId(this.currentPlayItem?.imdbId)
+          ? this.currentPlayItem.imdbId
+          : (this.isValidImdbId(this.currentDetail?.imdb_id) ? this.currentDetail.imdb_id : (this.currentPlayItem?.imdbId || null)),
         anilistId: this.anilistId || this.currentPlayItem?.anilistId || null,
         progressSeconds: progress,
         durationSeconds: duration,
@@ -13042,6 +13304,488 @@ this.hideUnreleasedCards();
     const sentinel = document.getElementById('moviesSentinel');
     if (sentinel) this._moviesObserver.observe(sentinel);
     setTimeout(() => { TVNav.updateFocusableElements(); TVNav.setInitialFocus(); }, 500);
+  },
+
+
+  // ===================== STREMIO ADDON SYSTEM =====================
+  _stremioKey: 'streamers_stremio_addons',
+
+  // Default Stremio addons installed automatically on first run / if missing
+  _defaultStremioManifests: [
+    'https://pengu.uk/%7B%22auth_token%22%3A%22kKFJ2Z1m3VZ8wNQP09IfRP5a-Ndryc-FtRzlX0lUstc%22%7D/manifest.json',
+	'https://cncverse.dpdns.org/u/p_c5ey1go733ma/manifest.json'
+  ],
+
+  getInstalledStremioAddons() {
+    try {
+      return JSON.parse(localStorage.getItem(this._stremioKey) || '[]');
+    } catch {
+      return [];
+    }
+  },
+
+  /**
+   * Ensure default addons are installed (runs once on init, silent)
+   */
+  async ensureDefaultStremioAddons() {
+    const list = this.getInstalledStremioAddons();
+    const defaults = this._defaultStremioManifests || [];
+    let added = 0;
+
+    for (const manifestUrl of defaults) {
+      // Already installed by exact URL?
+      if (list.some(a => a.manifestUrl === manifestUrl)) continue;
+
+      try {
+        // Silent install (no toasts)
+        let url = (manifestUrl || '').trim();
+        if (!url.startsWith('http')) continue;
+
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        const manifest = await res.json();
+        if (!manifest.id || !manifest.name) continue;
+
+        const resources = Array.isArray(manifest.resources) ? manifest.resources : [];
+        const hasStream = resources.some(r =>
+          r === 'stream' || (typeof r === 'object' && r.name === 'stream')
+        );
+        if (!hasStream) continue;
+
+        // Skip if same addon id already installed
+        if (list.some(a => a.id === manifest.id)) continue;
+
+        const baseUrl = url.replace(/\/manifest\.json$/i, '');
+        list.push({
+          id: manifest.id,
+          name: manifest.name,
+          version: manifest.version || '1.0.0',
+          description: manifest.description || '',
+          logo: manifest.logo || '',
+          types: manifest.types || ['movie', 'series'],
+          idPrefixes: manifest.idPrefixes || ['tt'],
+          resources: resources,
+          manifestUrl: url,
+          baseUrl,
+          isDefault: true
+        });
+        added++;
+      } catch (e) {
+        console.warn('Default Stremio addon install failed:', manifestUrl, e.message);
+      }
+    }
+
+    if (added > 0) {
+      this.saveInstalledStremioAddons(list);
+      console.log('Installed', added, 'default Stremio addon(s)');
+    }
+  },
+
+  // Master switch for Stremio streams
+  isStremioEnabled() {
+    const v = localStorage.getItem('streamers_stremio_enabled');
+    // default ON if never set
+    return v === null ? true : v === 'true';
+  },
+
+  setStremioEnabled(on) {
+    localStorage.setItem('streamers_stremio_enabled', on ? 'true' : 'false');
+    this.showToast(on ? 'Stremio addons ON' : 'Stremio addons OFF');
+    this.updateStremioToggleUI();
+  },
+
+  toggleStremioEnabled() {
+    this.setStremioEnabled(!this.isStremioEnabled());
+  },
+
+  updateStremioToggleUI() {
+    const btn = document.getElementById('stremioEnabledToggle');
+    const label = document.getElementById('stremioEnabledText');
+    if (!btn || !label) return;
+    const on = this.isStremioEnabled();
+    label.textContent = on ? 'Stremio Addons: ON' : 'Stremio Addons: OFF';
+    btn.style.color = on ? 'var(--accent)' : 'var(--text-secondary)';
+    btn.style.borderColor = on ? 'var(--accent)' : 'var(--border)';
+  },
+
+  showStremioProgress(total) {
+    const el = document.getElementById('stremioProgressOverlay');
+    if (!el) return;
+    el.style.display = 'block';
+    const bar = document.getElementById('stremioProgressBar');
+    const count = document.getElementById('stremioProgressCount');
+    const label = document.getElementById('stremioProgressLabel');
+    const detail = document.getElementById('stremioProgressDetail');
+    if (bar) bar.style.width = '0%';
+    if (count) count.textContent = '0/' + total;
+    if (label) label.textContent = 'Checking Stremio addons...';
+    if (detail) detail.textContent = 'Starting...';
+    this._stremioProgressTotal = total;
+    this._stremioProgressDone = 0;
+    this._stremioProgressFound = 0;
+  },
+
+  updateStremioProgress({ done, total, found, addonName, status }) {
+    const bar = document.getElementById('stremioProgressBar');
+    const count = document.getElementById('stremioProgressCount');
+    const label = document.getElementById('stremioProgressLabel');
+    const detail = document.getElementById('stremioProgressDetail');
+    const t = total || this._stremioProgressTotal || 1;
+    const d = done != null ? done : this._stremioProgressDone;
+    const f = found != null ? found : this._stremioProgressFound;
+    const pct = Math.min(100, Math.round((d / t) * 100));
+    if (bar) bar.style.width = pct + '%';
+    if (count) count.textContent = d + '/' + t;
+    if (label) {
+      label.textContent = f > 0
+        ? ('Found ' + f + ' source' + (f === 1 ? '' : 's') + '...')
+        : 'Checking Stremio addons...';
+    }
+    if (detail) {
+      if (status === 'done') detail.textContent = 'Done';
+      else if (addonName) detail.textContent = (status === 'ok' ? '✓ ' : '… ') + addonName;
+      else detail.textContent = '';
+    }
+  },
+
+  hideStremioProgress() {
+    const el = document.getElementById('stremioProgressOverlay');
+    if (el) el.style.display = 'none';
+  },
+
+  saveInstalledStremioAddons(list) {
+    localStorage.setItem(this._stremioKey, JSON.stringify(list));
+  },
+
+  /**
+   * Add a Stremio addon by its manifest URL
+   * @param {string} manifestUrl  e.g. "https://torrentio.strem.fun/manifest.json"
+   */
+  async addStremioAddon(manifestUrl) {
+    if (!manifestUrl || !manifestUrl.startsWith('http')) {
+      this.showToast('Invalid manifest URL');
+      return false;
+    }
+
+    // Normalize
+    manifestUrl = manifestUrl.trim().replace(/\/$/, '');
+    if (!manifestUrl.endsWith('/manifest.json') && !manifestUrl.endsWith('.json')) {
+      manifestUrl = manifestUrl.replace(/\/$/, '') + '/manifest.json';
+    }
+
+    try {
+      this.showToast('Fetching addon...');
+      const res = await fetch(manifestUrl);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const manifest = await res.json();
+
+      if (!manifest.id || !manifest.name) {
+        throw new Error('Invalid manifest');
+      }
+
+      // Check that it actually provides streams
+      const resources = Array.isArray(manifest.resources) ? manifest.resources : [];
+      const hasStream = resources.some(r => 
+        r === 'stream' || (typeof r === 'object' && r.name === 'stream')
+      );
+
+      if (!hasStream) {
+        this.showToast('This addon does not provide streams');
+        return false;
+      }
+
+      const baseUrl = manifestUrl.replace(/\/manifest\.json$/i, '');
+
+      const list = this.getInstalledStremioAddons();
+
+      // Prevent duplicates
+      if (list.some(a => a.id === manifest.id || a.manifestUrl === manifestUrl)) {
+        this.showToast('Addon already installed');
+        return false;
+      }
+
+      list.push({
+        id: manifest.id,
+        name: manifest.name,
+        version: manifest.version || '1.0.0',
+        description: manifest.description || '',
+        logo: manifest.logo || '',
+        types: manifest.types || ['movie', 'series'],
+        idPrefixes: manifest.idPrefixes || ['tt'],
+        resources: resources,
+        manifestUrl,
+        baseUrl
+      });
+
+      this.saveInstalledStremioAddons(list);
+      this.showToast('Added: ' + manifest.name);
+      return true;
+    } catch (err) {
+      console.error('addStremioAddon error:', err);
+      this.showToast('Failed to add addon');
+      return false;
+    }
+  },
+
+  removeStremioAddon(id) {
+    const list = this.getInstalledStremioAddons().filter(a => a.id !== id);
+    this.saveInstalledStremioAddons(list);
+    this.showToast('Addon removed');
+  },
+
+  /**
+   * Fetch streams from all installed Stremio addons
+   * Longer per-addon timeout + progressive collect (returns streams as addons respond)
+   * @param {'movie'|'series'} type
+   * @param {string} id   IMDb id (tt....)  or  tt....:season:episode for series
+   * @param {object} [opts]
+   * @param {number} [opts.timeoutMs=15000]  per-addon request timeout
+   * @param {number} [opts.maxWaitMs=18000]  max total wait before returning what we have
+   * @param {number} [opts.earlyReturnMs=4000] after first streams found, wait this long for more then can return early if all done
+   */
+  async fetchStremioStreams(type, id, opts = {}) {
+    if (!this.isStremioEnabled()) return [];
+    const addons = this.getInstalledStremioAddons();
+    if (!addons.length) return [];
+
+    const timeoutMs = opts.timeoutMs || 15000;
+    const maxWaitMs = opts.maxWaitMs || 18000;
+    const results = [];
+    const seenKeys = new Set();
+    let pending = 0;
+    let settled = 0;
+
+    const pushStreams = (addon, streams) => {
+      if (!streams || !streams.length) return 0;
+      let added = 0;
+      streams.forEach((s, idx) => {
+        let name = s.name || s.title || s.description || ('Stream ' + (idx + 1));
+        if (s.behaviorHints && s.behaviorHints.bingeGroup) {
+          name = name + ' [' + s.behaviorHints.bingeGroup + ']';
+        }
+
+        let playUrl = null;
+        let streamType = 'url';
+
+        if (s.url) {
+          playUrl = s.url;
+          streamType = 'url';
+        } else if (s.infoHash) {
+          const extraTrackers = [
+            'wss://tracker.openwebtorrent.com',
+            'wss://tracker.btorrent.xyz',
+            'wss://tracker.fastcast.nz',
+            'wss://tracker.webtorrent.dev',
+            'udp://tracker.opentrackr.org:1337/announce',
+            'udp://open.stealth.si:80/announce',
+            'udp://tracker.torrent.eu.org:451/announce',
+            'udp://tracker.moeking.me:6969/announce'
+          ];
+          let trackers = [];
+          if (s.sources && Array.isArray(s.sources)) {
+            s.sources.forEach(t => {
+              if (typeof t === 'string' && t.startsWith('tracker:')) {
+                trackers.push(t.replace('tracker:', ''));
+              }
+            });
+          }
+          extraTrackers.forEach(t => { if (!trackers.includes(t)) trackers.push(t); });
+          const tr = trackers.map(t => '&tr=' + encodeURIComponent(t)).join('');
+          playUrl = 'magnet:?xt=urn:btih:' + s.infoHash + tr;
+          if (s.fileIdx !== undefined) playUrl += '&fileIdx=' + s.fileIdx;
+          streamType = 'torrent';
+        } else if (s.ytId) {
+          playUrl = 'https://www.youtube.com/watch?v=' + s.ytId;
+          streamType = 'youtube';
+        } else if (s.externalUrl) {
+          playUrl = s.externalUrl;
+          streamType = 'external';
+        }
+
+        if (!playUrl) return;
+
+        const key = streamType + '|' + playUrl + '|' + (s.infoHash || '') + '|' + name;
+        if (seenKeys.has(key)) return;
+        seenKeys.add(key);
+
+        results.push({
+          name: addon.name + ' · ' + name,
+          url: playUrl,
+          type: streamType,
+          category: type === 'series' ? 'tv' : 'movie',
+          addonId: addon.id,
+          addonName: addon.name,
+          raw: s
+        });
+        added++;
+      });
+      return added;
+    };
+
+    const queryAddon = async (addon) => {
+      if (addon.types && addon.types.length &&
+          !addon.types.includes(type) &&
+          !addon.types.includes('movie') &&
+          !addon.types.includes('series')) {
+        return;
+      }
+      if (addon.idPrefixes && addon.idPrefixes.length) {
+        const ok = addon.idPrefixes.some(p => id.startsWith(p));
+        if (!ok) return;
+      }
+
+      const url = addon.baseUrl + '/stream/' + type + '/' + id + '.json';
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.streams || !Array.isArray(data.streams)) return;
+
+        const n = pushStreams(addon, data.streams);
+        if (n > 0) {
+          console.log('Stremio:', addon.name, '→', n, 'stream(s)');
+        }
+      } catch (e) {
+        console.warn('Stremio addon ' + addon.name + ' failed/timeout:', e.message || e);
+      }
+    };
+
+    const total = addons.length;
+    this.showStremioProgress(total);
+
+    const jobs = addons.map(async (addon) => {
+      pending++;
+      let status = 'empty';
+      try {
+        const before = results.length;
+        await queryAddon(addon);
+        const gained = results.length - before;
+        status = gained > 0 ? 'ok' : 'empty';
+      } catch (e) {
+        status = 'err';
+      } finally {
+        settled++;
+        pending--;
+        this._stremioProgressDone = settled;
+        this._stremioProgressFound = results.length;
+        this.updateStremioProgress({
+          done: settled,
+          total,
+          found: results.length,
+          addonName: addon.name,
+          status
+        });
+      }
+    });
+
+    // Wait until: all addons finished, OR maxWaitMs elapsed (return whatever we found)
+    await Promise.race([
+      Promise.allSettled(jobs),
+      new Promise(resolve => setTimeout(resolve, maxWaitMs))
+    ]);
+
+    this.updateStremioProgress({
+      done: total,
+      total,
+      found: results.length,
+      status: 'done'
+    });
+
+    if (pending > 0) {
+      console.log('Stremio: returning', results.length, 'stream(s);', pending, 'addon(s) still pending');
+    }
+
+    // Brief pause so user sees 100%, then hide
+    await new Promise(r => setTimeout(r, 400));
+    this.hideStremioProgress();
+
+    return results;
+  },
+
+  // Quick prompt to add a Stremio addon
+  async addStremioFromPrompt() {
+    const url = prompt('Paste Stremio addon manifest URL:\n(e.g. https://torrentio.strem.fun/manifest.json)');
+    if (url) {
+      await this.addStremioAddon(url.trim());
+    }
+  },
+
+  // Show installed Stremio addons (simple list + remove)
+  showStremioAddonsManager() {
+    const addons = this.getInstalledStremioAddons();
+    if (!addons.length) {
+      this.showToast('No Stremio addons installed. Use Add Stremio Addon first.');
+      return;
+    }
+    let msg = 'Installed Stremio Addons:\n\n';
+    addons.forEach((a, i) => {
+      msg += (i+1) + '. ' + a.name + ' (v' + a.version + ')\n';
+    });
+    msg += '\nEnter number to remove, or Cancel';
+    const choice = prompt(msg);
+    if (choice) {
+      const idx = parseInt(choice, 10) - 1;
+      if (idx >= 0 && idx < addons.length) {
+        this.removeStremioAddon(addons[idx].id);
+      }
+    }
+  },
+
+
+  // Called from More page input
+  async addStremioFromInput() {
+    const input = document.getElementById('stremioManifestInput');
+    if (!input) return;
+    const url = (input.value || '').trim();
+    if (!url) {
+      this.showToast('Paste a manifest URL first');
+      return;
+    }
+    const ok = await this.addStremioAddon(url);
+    if (ok) {
+      input.value = '';
+      this.renderStremioAddonsList();
+    }
+  },
+
+  async quickAddStremio(url) {
+    const ok = await this.addStremioAddon(url);
+    if (ok) this.renderStremioAddonsList();
+  },
+
+  renderStremioAddonsList() {
+    const listEl = document.getElementById('stremioAddonsList');
+    const countEl = document.getElementById('stremioAddonCount');
+    if (!listEl) return;
+
+    const addons = this.getInstalledStremioAddons();
+    if (countEl) countEl.textContent = addons.length + ' installed';
+
+    if (!addons.length) {
+      listEl.innerHTML = `
+        <div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px;">
+          No addons installed yet.<br>Paste a manifest URL above or use a quick button.
+        </div>`;
+      return;
+    }
+
+    listEl.innerHTML = addons.map(a => `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
+        ${a.logo ? `<img src="${a.logo}" style="width:32px;height:32px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'">` : 
+          `<div style="width:32px;height:32px;border-radius:8px;background:var(--accent-glow);display:flex;align-items:center;justify-content:center;font-size:16px;">🧩</div>`}
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${a.name}</div>
+          <div style="font-size:11px;color:var(--text-muted);">v${a.version || '1.0'} · ${ (a.types || []).join(', ') }</div>
+        </div>
+        <button onclick="app.removeStremioAddon('${a.id}'); app.renderStremioAddonsList();" 
+          style="padding:6px 10px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);border-radius:8px;color:#ef4444;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">
+          Remove
+        </button>
+      </div>
+    `).join('');
   },
 
   setTvFilter(filter) {
@@ -14035,7 +14779,7 @@ document.addEventListener('DOMContentLoaded', () => app.init());
 
 
 <!---DEV------>
-<!-- Load-----
+<!-- Load----->
 <script 
   disable-devtool-auto 
   src="https://cdn.jsdelivr.net/npm/disable-devtool"
@@ -14346,25 +15090,7 @@ document.addEventListener('DOMContentLoaded', () => app.init());
     <button class="detail-btn detail-btn-primary focusable" style="width:100%;" onclick="app.playTorrentFromModal()">▶ Play</button>
   </div>
 </div>
-<!-- ===== TORRENT INPUT MODAL ===== -->
-<div class="episode-modal" id="torrentModal" style="display:none;">
-  <div class="episode-modal-header">
-    <button class="back-arrow-btn focusable" onclick="app.closeTorrentModal()">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-    </button>
-    <span class="episode-modal-title">Torrent / Magnet Streamer</span>
-  </div>
-  <div class="episode-modal-content" style="display:flex;flex-direction:column;justify-content:center;align-items:center;gap:16px;padding:40px 20px;">
-    <div style="width:100%;max-width:500px;display:flex;flex-direction:column;gap:12px;">
-      <label style="font-size:14px;font-weight:700;color:var(--text);">Enter Magnet Link or Torrent URL:</label>
-      <textarea id="torrentInput" class="focusable" placeholder="magnet:?xt=urn:btih:... or .torrent URL" style="width:100%;height:120px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;color:var(--text);font-family:inherit;font-size:14px;outline:none;resize:none;"></textarea>
-      <button class="detail-btn detail-btn-primary focusable" onclick="app.playTorrentFromModal()" style="width:100%;padding:14px;">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-        Stream Torrent
-      </button>
-    </div>
-  </div>
-</div>
+
 <!-------------------->
 </body>
 </html>
