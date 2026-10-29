@@ -12387,7 +12387,7 @@ toggleVivamaxVisibility() {
     const isWebSupportedFormat = (() => {
       if (!lower) return false;
       // Explicitly unsupported in most browsers
-      if (/\.(mkv|avi|wmv|flv|ts|m2ts|vob|divx|xvid)(\?|#|$)/i.test(lower)) return false;
+      if (/\.(mp4|mkv|avi|wmv|flv|ts|m2ts|vob|divx|xvid)(\?|#|$)/i.test(lower)) return false;
       // Web-friendly: progressive + HLS
       if (/\.(mp4|webm|ogg|ogv|m4v|mov|mp3|m4a)(\?|#|$)/i.test(lower)) return true;
       if (lower.includes('.m3u8') || lower.includes('playlist.m3u') ||
