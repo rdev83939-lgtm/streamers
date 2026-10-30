@@ -14562,12 +14562,12 @@ this.hideUnreleasedCards();
           style="padding:6px 12px;background:${on ? 'rgba(200,255,0,0.15)' : 'rgba(255,255,255,0.06)'};border:1px solid ${on ? 'var(--accent)' : 'var(--border)'};border-radius:8px;color:${on ? 'var(--accent)' : 'var(--text-muted)'};font-size:11px;font-weight:800;cursor:pointer;font-family:inherit;min-width:48px;">
           ${on ? 'ON' : 'OFF'}
         </button>
-        <button onclick="app.openStremioAddonInDesktop(${JSON.stringify(a.manifestUrl || '')})"
+      <!---  <button onclick="app.openStremioAddonInDesktop(${JSON.stringify(a.manifestUrl || '')})"
           class="focusable"
           title="Install / open in Stremio desktop app"
           style="padding:6px 10px;background:rgba(200,255,0,0.12);border:1px solid rgba(200,255,0,0.35);border-radius:8px;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">
           Desktop
-        </button>
+        </button>---->
         <button onclick="app.removeStremioAddon('${a.id}'); app.renderStremioAddonsList();" 
           class="focusable"
           style="padding:6px 10px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);border-radius:8px;color:#ef4444;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">
