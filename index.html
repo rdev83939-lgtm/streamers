@@ -3972,6 +3972,32 @@ body:not(.home-hidden) #rotatingBanner {
     <span style="font-size:11px;color:var(--text-muted);">Tap to toggle</span>
   </button>
 
+  <!-- Stremio Auto-Play + Resolution filter -->
+  <button id="stremioAutoPlayToggle" onclick="app.toggleStremioAutoPlay()" 
+    style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:12px 14px;background:var(--bg);border:1px solid var(--border);border-radius:10px;cursor:pointer;font-family:inherit;color:var(--text);">
+    <span id="stremioAutoPlayText" style="font-size:14px;font-weight:700;">Auto-Play Stremio: OFF</span>
+    <span style="font-size:11px;color:var(--text-muted);">Tap to toggle</span>
+  </button>
+
+  <div style="display:flex;flex-direction:column;gap:8px;padding:12px 14px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+      <span style="font-size:14px;font-weight:700;">Preferred Resolution</span>
+      <span style="font-size:11px;color:var(--text-muted);">Filter / sort</span>
+    </div>
+    <select id="stremioResolutionSelect" onchange="app.setStremioResolution(this.value)"
+      class="focusable"
+      style="width:100%;padding:10px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:inherit;font-size:14px;outline:none;">
+      <option value="any">Any (highest first)</option>
+      <option value="4k">4K / 2160p</option>
+      <option value="1080p">1080p</option>
+      <option value="720p">720p</option>
+      <option value="480p">480p</option>
+    </select>
+    <div style="font-size:11px;color:var(--text-muted);line-height:1.4;">
+      Matching Stremio streams are listed first. With Auto-Play ON, the best match starts automatically.
+    </div>
+  </div>
+
   <p style="font-size:12px;color:var(--text-muted);margin:0;line-height:1.4;">
     Add any Stremio stream addon by pasting its manifest URL. Streams from these addons will appear first in the source list.
   </p>
@@ -6173,6 +6199,8 @@ showCreateFirstProfile() {
  ////////////////
 checkSourcesEnabled: JSON.parse(localStorage.getItem('sv_check_sources') || 'false'),
   autoPlayBestSource: JSON.parse(localStorage.getItem('sv_autoplay_best') || 'false'),
+  stremioAutoPlay: JSON.parse(localStorage.getItem('sv_stremio_autoplay') || 'false'),
+  stremioResolution: localStorage.getItem('sv_stremio_resolution') || 'any',
 ///////////////////////////
  _autoSelectTimer: null,
   _autoSelectCountdown: null,
@@ -6647,7 +6675,7 @@ async showSourceSelect(sources, title, isTv = false, season = null, episode = nu
     content.innerHTML = '';
     this.renderSourceList(sources);
     
-    if (this.autoPlayBestSource) {
+    if (this.autoPlayBestSource || this.shouldAutoPlayStremioSource(sources)) {
       this.startAutoSelect(title, isTv, season, episode);
     }
     
@@ -6700,7 +6728,7 @@ async showSourceSelect(sources, title, isTv = false, season = null, episode = nu
     this.renderSourceList(activeSources);
     
     // Only start auto-select if enabled in settings
-    if (this.autoPlayBestSource) {
+    if (this.autoPlayBestSource || this.shouldAutoPlayStremioSource(activeSources)) {
       this.startAutoSelect(title, isTv, season, episode);
     } else {
       // Just show count without countdown
@@ -6831,7 +6859,9 @@ async retrySourceCheck() {
   } else {
     this._pendingSources = activeSources;
     this.renderSourceList(activeSources);
-    this.startAutoSelect(title, isTv, season, episode);
+    if (this.autoPlayBestSource || this.shouldAutoPlayStremioSource(activeSources)) {
+      this.startAutoSelect(title, isTv, season, episode);
+    }
   }
   
   setTimeout(() => { TVNav.updateFocusableElements(); TVNav.setInitialFocus(); }, 100);
@@ -6852,7 +6882,7 @@ renderSourceList(sources) {
     return;
   }
 
-  const autoPlayEnabled = this.autoPlayBestSource;
+  const autoPlayEnabled = this.autoPlayBestSource || this.shouldAutoPlayStremioSource(sources);
 
   content.innerHTML = sources.map((s, i) => {
     const category = s.category || 'movie';
@@ -7018,6 +7048,8 @@ async init() {
 
     // Install default Stremio addons if missing (e.g. Pengu)
     this.ensureDefaultStremioAddons().catch(e => console.warn('Default Stremio addons:', e));
+    this.updateStremioToggleUI();
+    this.updateStremioAutoPlayUI();
 
     // Reload profiles from localStorage to ensure we have latest
     const savedProfiles = JSON.parse(localStorage.getItem('sv_profiles') || 'null');
@@ -9826,6 +9858,7 @@ this.currentTab = tab;
     this.updateFavoriteSourceUI();
     this.renderStremioAddonsList();   // refresh Stremio addon list
     this.updateStremioToggleUI();     // sync ON/OFF button
+    this.updateStremioAutoPlayUI();   // sync Stremio auto-play + resolution
 	
 	TVNav.updateFocusableElements(); TVNav.setInitialFocus(); }, 300);
   },
@@ -12161,80 +12194,643 @@ toggleVivamaxVisibility() {
   },
 
 
-  // Load a source (iframe / direct url / torrent / youtube) into the player
+  // Play stream URL in the in-app player (same page — no navigate away, no VLC)
+  openStreamSamePage(url) {
+    const target = url || this._pendingExternalUrl;
+    if (!target) {
+      this.showToast('No stream URL');
+      return;
+    }
+    this._pendingExternalUrl = target;
+    this.showToast('Playing on this page…');
+
+    const playerContent = document.getElementById('playerContent') || document.querySelector('#playerPage .player-content');
+    const playerLoading = document.getElementById('playerLoading');
+    if (!playerContent) {
+      // Fallback only if player DOM missing
+      try { window.location.href = target; } catch (e) {}
+      return;
+    }
+
+    const source = {
+      url: target,
+      type: 'url',
+      name: (this.currentPlayItem && this.currentPlayItem.title) || 'Stream'
+    };
+    this.loadSourceIntoPlayer(source, playerContent, playerLoading);
+  },
+
+  // Try to open stream in MPV (desktop protocol / Android intent)
+  openStreamInMpv(url) {
+    const target = url || this._pendingExternalUrl;
+    if (!target) {
+      this.showToast('No stream URL');
+      return false;
+    }
+    this._pendingExternalUrl = target;
+
+    const isAndroid = /android/i.test(navigator.userAgent || '');
+    const isMagnet = /^magnet:/i.test(target);
+    const isHttp = /^https?:/i.test(target);
+
+    const tryNavigate = (href) => {
+      if (!href) return false;
+      try {
+        // 1) location assignment (best for intent: on Android WebView / some browsers)
+        const iframe = document.createElement('iframe');
+        iframe.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;border:0;';
+        iframe.setAttribute('src', href);
+        document.body.appendChild(iframe);
+        setTimeout(() => { try { document.body.removeChild(iframe); } catch (e) {} }, 2000);
+      } catch (e) {}
+      try {
+        window.location.href = href;
+        return true;
+      } catch (e) {}
+      try {
+        const a = document.createElement('a');
+        a.href = href;
+        a.rel = 'noopener';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { try { document.body.removeChild(a); } catch (e) {} }, 500);
+        return true;
+      } catch (e) {}
+      return false;
+    };
+
+    if (isAndroid) {
+      // mpv-android package: is.xyz.mpv
+      // Chrome requires a user gesture for intent:// — auto may fail; caller can show tap button
+      const playStore = 'https://play.google.com/store/apps/details?id=is.xyz.mpv';
+      const candidates = [];
+
+      if (isHttp) {
+        // Canonical intent form for VIEW + package
+        candidates.push(
+          'intent://' + target.replace(/^https?:\/\//i, '') +
+          '#Intent;scheme=' + (target.startsWith('https') ? 'https' : 'http') +
+          ';action=android.intent.action.VIEW;type=video/*;package=is.xyz.mpv' +
+          ';S.browser_fallback_url=' + encodeURIComponent(playStore) + ';end'
+        );
+        candidates.push(
+          'intent:' + target +
+          '#Intent;action=android.intent.action.VIEW;type=video/*;package=is.xyz.mpv' +
+          ';S.browser_fallback_url=' + encodeURIComponent(playStore) + ';end'
+        );
+        // Generic video handler (user may pick MPV)
+        candidates.push(
+          'intent:' + target +
+          '#Intent;action=android.intent.action.VIEW;type=video/x-matroska;end'
+        );
+        candidates.push(
+          'intent:' + target +
+          '#Intent;action=android.intent.action.VIEW;type=video/*;end'
+        );
+      } else if (isMagnet) {
+        candidates.push(
+          'intent:' + target +
+          '#Intent;action=android.intent.action.VIEW;package=is.xyz.mpv;end'
+        );
+        candidates.push(target);
+      } else {
+        candidates.push(
+          'intent:' + target +
+          '#Intent;action=android.intent.action.VIEW;type=video/*;package=is.xyz.mpv;end'
+        );
+      }
+
+      this.showToast('Opening in MPV…');
+      // Fire first candidate immediately
+      tryNavigate(candidates[0]);
+      // Stagger backups (some WebViews only honor the first navigation)
+      candidates.slice(1, 3).forEach((href, i) => {
+        setTimeout(() => tryNavigate(href), 400 * (i + 1));
+      });
+      return true;
+    }
+
+    // Desktop
+    const encoded = encodeURIComponent(target);
+    this.showToast('Launching MPV…');
+    tryNavigate('mpv://' + encoded);
+    setTimeout(() => tryNavigate('mpv:' + target), 300);
+    if (isMagnet) setTimeout(() => tryNavigate(target), 600);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        setTimeout(() => {
+          navigator.clipboard.writeText(target).catch(() => {});
+        }, 500);
+      }
+    } catch (e) {}
+    return true;
+  },
+
+  // Full-screen single-tap MPV launch (required when browser blocks silent intents)
+  showMpvTapToOpen(url) {
+    const target = url || this._pendingExternalUrl;
+    if (!target) return;
+    this._pendingExternalUrl = target;
+    const playerContent = document.getElementById('playerContent');
+    if (!playerContent) {
+      this.openStreamInMpv(target);
+      return;
+    }
+    const playStore = 'https://play.google.com/store/apps/details?id=is.xyz.mpv';
+    let intentHref = target;
+    if (/^https?:/i.test(target)) {
+      intentHref =
+        'intent://' + target.replace(/^https?:\/\//i, '') +
+        '#Intent;scheme=' + (target.startsWith('https') ? 'https' : 'http') +
+        ';action=android.intent.action.VIEW;type=video/*;package=is.xyz.mpv' +
+        ';S.browser_fallback_url=' + encodeURIComponent(playStore) + ';end';
+    } else {
+      intentHref =
+        'intent:' + target +
+        '#Intent;action=android.intent.action.VIEW;package=is.xyz.mpv;end';
+    }
+
+    playerContent.innerHTML = `
+      <div id="playerContainer" style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;gap:20px;padding:24px;text-align:center;">
+        <div style="font-size:18px;font-weight:800;color:#fff;">Unsupported in browser</div>
+        <div style="font-size:13px;color:var(--text-muted);max-width:340px;line-height:1.5;">
+          Tap below to open in MPV. Android blocks auto-open without a tap.
+        </div>
+        <a id="mpvTapLink" href="${intentHref.replace(/"/g, '&quot;')}"
+          style="display:flex;align-items:center;justify-content:center;gap:10px;max-width:300px;width:100%;padding:16px 20px;background:var(--accent);color:#000;border-radius:12px;font-size:16px;font-weight:800;text-decoration:none;text-transform:uppercase;letter-spacing:0.5px;"
+          class="focusable">
+          🎬 Open in MPV
+        </a>
+      </div>
+    `;
+    // Also bind JS handler so we fire all intent variants on the same user gesture
+    const link = document.getElementById('mpvTapLink');
+    if (link) {
+      link.addEventListener('click', (e) => {
+        // Let default intent href run; also fire openStreamInMpv as backup on same gesture
+        setTimeout(() => this.openStreamInMpv(target), 50);
+      }, { passive: true });
+    }
+    setTimeout(() => { if (typeof TVNav !== 'undefined') { TVNav.updateFocusableElements(); TVNav.setInitialFocus(); } }, 150);
+  },
+
+
+
+  /**
+   * Open stream directly in VLC (no download).
+   * Must run from a user click. Tries several vlc:// forms + Android intent.
+   */
+  openStreamInVlc(url, meta) {
+    const target = url || this._pendingExternalUrl;
+    if (!target) {
+      this.showToast('No stream URL');
+      return false;
+    }
+    this._pendingExternalUrl = target;
+
+    const isAndroid = /android/i.test(navigator.userAgent || '');
+    const isMagnet = /^magnet:/i.test(target);
+    const isHttp = /^https?:/i.test(target);
+
+    const fire = (href) => {
+      if (!href) return false;
+      try {
+        // Visible-navigation style: <a> click in the same user gesture
+        const a = document.createElement('a');
+        a.href = href;
+        a.target = '_self';
+        a.rel = 'noopener';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { try { document.body.removeChild(a); } catch (e) {} }, 800);
+        return true;
+      } catch (e) {
+        try {
+          window.location.href = href;
+          return true;
+        } catch (e2) {
+          return false;
+        }
+      }
+    };
+
+    // ----- Android: org.videolan.vlc -----
+    if (isAndroid) {
+      const playStore = 'https://play.google.com/store/apps/details?id=org.videolan.vlc';
+      let intentHref;
+      if (isHttp) {
+        intentHref =
+          'intent://' + target.replace(/^https?:\/\//i, '') +
+          '#Intent;scheme=' + (target.startsWith('https') ? 'https' : 'http') +
+          ';action=android.intent.action.VIEW;type=video/*;package=org.videolan.vlc' +
+          ';S.browser_fallback_url=' + encodeURIComponent(playStore) + ';end';
+      } else if (isMagnet) {
+        intentHref =
+          'intent:' + target +
+          '#Intent;action=android.intent.action.VIEW;package=org.videolan.vlc' +
+          ';S.browser_fallback_url=' + encodeURIComponent(playStore) + ';end';
+      } else {
+        intentHref =
+          'intent:' + target +
+          '#Intent;action=android.intent.action.VIEW;type=video/*;package=org.videolan.vlc;end';
+      }
+      this.showToast('Opening VLC…');
+      fire(intentHref);
+      return true;
+    }
+
+    // ----- Desktop: open VLC via protocol (NO download) -----
+    // VLC registers vlc:// when "Web plugins / protocol" options are enabled at install.
+    // Forms that work across Windows / macOS / Linux builds:
+    const candidates = [];
+    if (isHttp) {
+      candidates.push('vlc://' + target);           // vlc://https://...
+      candidates.push('vlc:///' + target);          // vlc:///https://... (some Windows builds)
+      candidates.push('vlc:' + target);             // vlc:https://...
+    } else if (isMagnet) {
+      candidates.push(target);                      // system magnet → may open VLC if associated
+      candidates.push('vlc://' + target);
+    } else {
+      candidates.push('vlc://' + target);
+      candidates.push('vlc:///' + target);
+      candidates.push('vlc:' + target);
+    }
+
+    this.showToast('Opening VLC…');
+    // Fire first immediately (same user gesture). Stagger backups slightly.
+    fire(candidates[0]);
+    candidates.slice(1).forEach((href, i) => {
+      setTimeout(() => fire(href), 200 * (i + 1));
+    });
+
+    return true;
+  },
+
+  /** Convert https addon manifest URL → stremio:// protocol (installs in desktop Stremio) */
+  openStremioAddonInDesktop(manifestUrl) {
+    let url = (manifestUrl || '').trim();
+    if (!url) {
+      this.showToast('No manifest URL');
+      return false;
+    }
+    if (!url.startsWith('http')) {
+      this.showToast('Invalid manifest URL');
+      return false;
+    }
+    // Official deep-link: replace https:// with stremio://
+    const stremioUrl = url.replace(/^https:\/\//i, 'stremio://').replace(/^http:\/\//i, 'stremio://');
+    this.showToast('Opening addon in Stremio desktop…');
+    try {
+      const a = document.createElement('a');
+      a.href = stremioUrl;
+      a.rel = 'noopener';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { try { document.body.removeChild(a); } catch (e) {} }, 500);
+    } catch (e) {
+      try { window.location.href = stremioUrl; } catch (e2) {}
+    }
+    return true;
+  },
+
+  // Ensure hls.js is available for m3u8 streams (Stremio / direct URLs)
+  async ensureHlsJs() {
+    if (window.Hls) return true;
+    if (this._hlsLoading) return this._hlsLoading;
+    this._hlsLoading = new Promise((resolve) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js';
+      s.onload = () => resolve(!!window.Hls);
+      s.onerror = () => resolve(false);
+      document.head.appendChild(s);
+    });
+    return this._hlsLoading;
+  },
+
+  // Load a source (iframe / direct url / torrent / youtube / external) into the player
   async loadSourceIntoPlayer(source, playerContent, playerLoading) {
     if (!source || !playerContent) return;
 
-    // Always clean previous torrent before loading a new source
+    // Always clean previous torrent / hls before loading a new source
     if (typeof TorrentPlayer !== 'undefined' && TorrentPlayer.stop) {
       try { TorrentPlayer.stop(); } catch(e) {}
+    }
+    if (this._hlsInstance) {
+      try { this._hlsInstance.destroy(); } catch(e) {}
+      this._hlsInstance = null;
     }
 
     playerContent.innerHTML = '';
     if (playerLoading) playerLoading.style.display = 'flex';
 
-    const type = source.type || 'iframe';
+    let type = source.type || 'iframe';
+    const url = source.url || '';
+    const lower = (url || '').toLowerCase();
 
-    if (type === 'torrent') {
-      // Use the existing robust TorrentPlayer (WebRTC + extra trackers)
+    // ===== ANDROID: send ALL stream types to MPV =====
+    const isAndroid = /android/i.test(navigator.userAgent || '');
+    if (isAndroid && url) {
+      this._pendingExternalUrl = url;
       if (playerLoading) playerLoading.style.display = 'none';
-      const title = (this.currentPlayItem && this.currentPlayItem.title) || source.name || 'Torrent Stream';
-      // TorrentPlayer opens the playerPage itself and handles everything
-      if (typeof TorrentPlayer !== 'undefined' && TorrentPlayer.playMagnet) {
-        TorrentPlayer.playMagnet(source.url, title);
-      } else {
-        this.showToast('WebTorrent not available');
-      }
+      this.showToast('Opening in MPV…');
+      // Auto-try intent, then always show one-tap button (Chrome needs user gesture)
+      this.openStreamInMpv(url);
+      this.showMpvTapToOpen(url);
+      // Also show a clear full-screen fallback UI in the player
+      const escUrl = String(url).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      playerContent.innerHTML = `
+        <div id="playerContainer" style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;gap:16px;padding:24px;text-align:center;">
+          <div style="font-size:18px;font-weight:800;color:#fff;">Android · Open in MPV</div>
+          <div style="font-size:13px;color:var(--text-muted);max-width:360px;line-height:1.5;">
+            All sources open in <b style="color:#fff;">MPV</b> on Android.<br>
+            Tap the button if playback did not start.
+          </div>
+          <button class="detail-btn detail-btn-primary focusable" style="max-width:320px;width:100%;"
+            onclick="app.openStreamInMpv()">▶ Open in MPV</button>
+          <button class="detail-btn detail-btn-sec focusable" style="max-width:320px;width:100%;"
+            onclick="app.nextSource && app.nextSource()">Try Next Source</button>
+          <a class="detail-btn detail-btn-sec focusable" style="max-width:320px;width:100%;text-decoration:none;display:flex;align-items:center;justify-content:center;"
+            href="${escUrl}" target="_blank" rel="noopener">Open URL externally</a>
+        </div>
+      `;
+      setTimeout(() => { if (typeof TVNav !== 'undefined') { TVNav.updateFocusableElements(); TVNav.setInitialFocus(); } }, 150);
       return;
     }
 
-    if (type === 'url' || type === 'youtube') {
-      // Direct video or YouTube
-      const container = document.createElement('div');
-      container.id = 'playerContainer';
-      container.style.cssText = 'width:100%;height:100%;position:relative;background:#000;';
+    // Normalize types from Stremio / addons (final notWebReady decision after format detect)
+    // Defer notWebReady handling until isWebSupportedFormat is computed below.
 
-      if (type === 'youtube' || (source.url && source.url.includes('youtube.com'))) {
-        // YouTube embed
-        const ytId = source.url.match(/(?:v=|youtu\.be\/)([\w-]{11})/)?.[1] || source.raw?.ytId;
-        const iframe = document.createElement('iframe');
-        iframe.id = 'playerFrame';
-        iframe.src = ytId ? `https://www.youtube.com/embed/${ytId}?autoplay=1` : source.url;
-        iframe.style.cssText = 'width:100%;height:100%;border:none;';
-        iframe.allow = 'accelerometer; autoplay; encrypted-media; fullscreen; gyroscope; picture-in-picture';
-        iframe.allowFullscreen = true;
-        container.appendChild(iframe);
+    if (type === 'url') {
+      const isDirectMedia = /\.(mp4|mkv|webm|ogg|m4v|mov|avi)(\?|#|$)/i.test(lower) ||
+        lower.includes('.m3u8') || lower.includes('mime=video') || lower.includes('/playlist.m3u');
+      const isEmbedPage = /\/(embed|player|watch|stream|play)\b/i.test(lower) ||
+        lower.includes('vidsrc') || lower.includes('vidlink') || lower.includes('2embed') ||
+        lower.includes('embed.') || lower.includes('/e/') || lower.includes('player.');
+      if (!isDirectMedia && isEmbedPage) type = 'iframe';
+    }
+
+    // Detect web-supported vs unsupported containers from URL
+    // BUGFIX: mp4 must NOT be treated as unsupported
+    const isUnsupportedContainer = /\.(mkv|avi|wmv|flv|ts|m2ts|vob|divx|xvid|rmvb|3gp)(\?|#|$)/i.test(lower);
+    const isWebSupportedFormat = (() => {
+      if (!url || !lower) return false;
+      if (isUnsupportedContainer) return false;
+      if (/^magnet:/i.test(url)) return false;
+      // Progressive / HLS / common web audio-video
+      if (/\.(mp4|webm|ogg|ogv|m4v|mov|mp3|m4a|aac|wav)(\?|#|$)/i.test(lower)) return true;
+      if (lower.includes('.m3u8') || lower.includes('playlist.m3u') ||
+          lower.includes('/hls/') || lower.includes('format=m3u8') ||
+          lower.includes('mime=video') || lower.includes('mime=application/x-mpegurl') ||
+          lower.includes('application/x-mpegurl') ||
+          lower.includes('application/vnd.apple.mpegurl')) return true;
+      // Direct media query hints
+      if (/[?&](ext|format|type)=(mp4|webm|m3u8|hls)\b/i.test(lower)) return true;
+      return false;
+    })();
+
+    // Override Stremio notWebReady when URL is clearly browser-playable
+    if (source.raw && source.raw.behaviorHints && source.raw.behaviorHints.notWebReady) {
+      if (isWebSupportedFormat) {
+        type = 'url';
       } else {
-        // HTML5 video
+        type = 'external';
+      }
+    }
+
+    // Stremio addon streams:
+    // - Web formats → play in-app <video>/HLS (same page)
+    // - MKV / unsupported → external chooser (no VLC by default)
+    // - Torrents → WebTorrent
+    const isStremioSource = !!(source.addonId || source.addonName ||
+      (source.name && String(source.name).indexOf(' · ') !== -1 && source.raw));
+
+    if (isStremioSource && type !== 'torrent' && type !== 'youtube') {
+      if (isWebSupportedFormat) {
+        type = 'url';
+      } else if (type === 'url' || type === 'iframe' || type === 'external') {
+        type = isUnsupportedContainer ? 'external' : (type === 'iframe' ? 'iframe' : 'url');
+        // Unknown http(s) from Stremio: try in-page video first
+        if (!isUnsupportedContainer && /^https?:/i.test(url) && type !== 'iframe') {
+          type = 'url';
+        }
+      }
+    }
+
+    // External but web-playable → force in-page video path
+    if (type === 'external' && isWebSupportedFormat) {
+      type = 'url';
+    }
+
+    // ----- EXTERNAL / unsupported (mkv etc.) -----
+    // Android Chrome blocks silent intent:// without a user tap → show ONE MPV button only
+    if (type === 'external') {
+      if (playerLoading) playerLoading.style.display = 'none';
+      this._pendingExternalUrl = url;
+
+      // Android is handled at the top of loadSourceIntoPlayer (all types → MPV)
+      const isAndroid = /android/i.test(navigator.userAgent || '');
+      if (isAndroid) {
+        this.openStreamInMpv(url);
+        this.showMpvTapToOpen(url);
+        return;
+      }
+/////////////////////
+
+
+      // Desktop / other: try in-page playback first (no VLC)
+      this._pendingExternalUrl = url;
+      const escUrl = String(url || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+      // Prefer attempting <video> on same page for any http(s) URL
+      if (/^https?:/i.test(url || '')) {
+        // Fall through by forcing type url path — re-enter via helper
+        const trySource = { url: url, type: 'url', name: source.name || 'Stream', raw: source.raw, addonId: source.addonId, addonName: source.addonName };
+        // Avoid infinite loop: play with video element inline here
+        const container = document.createElement('div');
+        container.id = 'playerContainer';
+        container.style.cssText = 'width:100%;height:100%;position:relative;background:#000;';
         const video = document.createElement('video');
         video.id = 'playerVideo';
         video.controls = true;
         video.autoplay = true;
-        video.src = source.url;
-        video.style.cssText = 'width:100%;height:100%;object-fit:contain;';
+        video.playsInline = true;
+        video.crossOrigin = 'anonymous';
+        video.style.cssText = 'width:100%;height:100%;object-fit:contain;background:#000;';
         container.appendChild(video);
+        playerContent.appendChild(container);
+        const hideLoading = () => { if (playerLoading) playerLoading.style.display = 'none'; };
+        const showChooser = (reason) => {
+          hideLoading();
+          container.innerHTML = `
+            <div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:#000;">
+              <div style="font-size:16px;font-weight:800;color:#fff;">Could not play in browser</div>
+              <div style="font-size:12px;color:var(--text-muted);max-width:360px;">${reason || 'Format or CORS blocked in-page playback'}</div>
+              <button class="detail-btn detail-btn-primary focusable" style="max-width:300px;width:100%;"
+                onclick="app.nextSource && app.nextSource()">Try Next Source</button>
+              <button class="detail-btn detail-btn-sec focusable" style="max-width:300px;width:100%;"
+                onclick="window.open('${escUrl}', '_blank')">Open URL externally</button>
+            </div>`;
+          setTimeout(() => { if (typeof TVNav !== 'undefined') TVNav.updateFocusableElements(); }, 150);
+        };
+        video.addEventListener('error', () => showChooser('Video element error'));
+        video.addEventListener('loadeddata', hideLoading);
+        video.addEventListener('playing', hideLoading);
+        video.src = url;
+        video.play().catch(() => {});
+        setTimeout(hideLoading, 8000);
+        return;
       }
-      playerContent.appendChild(container);
-      if (playerLoading) {
-        setTimeout(() => playerLoading.style.display = 'none', 1500);
+      playerContent.innerHTML = `
+        <div id="playerContainer" style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;gap:14px;padding:24px;text-align:center;">
+          <div style="font-size:16px;font-weight:800;color:#fff;">Unsupported in browser</div>
+          <div style="font-size:13px;color:var(--text-muted);max-width:360px;">This source is not a web-playable format (e.g. MKV). Try another source.</div>
+          <button class="detail-btn detail-btn-primary focusable" style="max-width:300px;width:100%;"
+            onclick="app.nextSource && app.nextSource()">Try Next Source</button>
+          <button class="detail-btn detail-btn-sec focusable" style="max-width:300px;width:100%;"
+            onclick="window.open('${escUrl}', '_blank')">Open URL externally</button>
+        </div>
+      `;
+      setTimeout(() => { if (typeof TVNav !== 'undefined') { TVNav.updateFocusableElements(); TVNav.setInitialFocus(); } }, 150);
+      return;
+    }
+
+    // ----- TORRENT -----
+    if (type === 'torrent') {
+      if (playerLoading) playerLoading.style.display = 'none';
+      const title = (this.currentPlayItem && this.currentPlayItem.title) || source.name || 'Torrent Stream';
+      if (typeof TorrentPlayer !== 'undefined' && TorrentPlayer.playMagnet) {
+        TorrentPlayer.playMagnet(source.url, title);
+      } else {
+        this.showToast('WebTorrent not available');
+        const escMag = String(url || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        playerContent.innerHTML = `
+          <div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px;text-align:center;">
+            <div style="color:#fff;font-weight:700;">WebTorrent unavailable</div>
+            <button class="detail-btn detail-btn-primary" onclick="window.open('${escMag}', '_blank')">Open Magnet Externally</button>
+          </div>`;
       }
       return;
     }
 
-    // Default: iframe (existing behavior)
+    // ----- YOUTUBE -----
+    if (type === 'youtube' || (url && (url.includes('youtube.com') || url.includes('youtu.be')))) {
+      const container = document.createElement('div');
+      container.id = 'playerContainer';
+      container.style.cssText = 'width:100%;height:100%;position:relative;background:#000;';
+      const ytId = (url.match(/(?:v=|youtu\.be\/|embed\/)([\w-]{11})/) || [])[1] || (source.raw && source.raw.ytId);
+      const iframe = document.createElement('iframe');
+      iframe.id = 'playerFrame';
+      iframe.src = ytId ? ('https://www.youtube.com/embed/' + ytId + '?autoplay=1') : url;
+      iframe.style.cssText = 'width:100%;height:100%;border:none;';
+      iframe.allow = 'accelerometer; autoplay; encrypted-media; fullscreen; gyroscope; picture-in-picture';
+      iframe.allowFullscreen = true;
+      container.appendChild(iframe);
+      playerContent.appendChild(container);
+      if (playerLoading) setTimeout(() => { playerLoading.style.display = 'none'; }, 1200);
+      return;
+    }
+
+    // ----- DIRECT URL (mp4 / m3u8 / etc.) -----
+    if (type === 'url') {
+      const container = document.createElement('div');
+      container.id = 'playerContainer';
+      container.style.cssText = 'width:100%;height:100%;position:relative;background:#000;';
+      const video = document.createElement('video');
+      video.id = 'playerVideo';
+      video.controls = true;
+      video.autoplay = true;
+      video.playsInline = true;
+      video.style.cssText = 'width:100%;height:100%;object-fit:contain;background:#000;';
+      container.appendChild(video);
+      playerContent.appendChild(container);
+
+      const hideLoading = () => { if (playerLoading) playerLoading.style.display = 'none'; };
+
+      const showFallback = (reason) => {
+        hideLoading();
+        this._pendingExternalUrl = url;
+        container.innerHTML = `
+          <div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;background:#000;">
+            <div style="font-size:16px;font-weight:800;color:#fff;">Stream failed in-app</div>
+            <div style="font-size:12px;color:var(--text-muted);">${reason || 'Provider blocked playback or CORS/format issue'}</div>
+            <button class="detail-btn detail-btn-primary focusable" style="max-width:300px;width:100%;"
+              onclick="app.openStreamSamePage()">▶ Open on this page</button>
+            <button class="detail-btn detail-btn-sec focusable" style="max-width:300px;width:100%;"
+              onclick="app.openStreamInMpv()">🎬 Open in MPV</button>
+            <button class="detail-btn detail-btn-sec focusable" style="max-width:300px;width:100%;"
+              onclick="app.nextSource && app.nextSource()">Try Next Source</button>
+          </div>`;
+        setTimeout(() => { if (typeof TVNav !== 'undefined') TVNav.updateFocusableElements(); }, 150);
+      };
+
+      video.addEventListener('error', () => showFallback('Video element could not load this URL'));
+      video.addEventListener('loadeddata', hideLoading);
+      video.addEventListener('playing', hideLoading);
+
+      const isHls = lower.includes('.m3u8') || lower.includes('playlist.m3u') || lower.includes('mime=application/x-mpegurl');
+
+      if (isHls) {
+        const ok = await this.ensureHlsJs();
+        if (ok && window.Hls && window.Hls.isSupported()) {
+          try {
+            const hls = new window.Hls({
+              enableWorker: true,
+              lowLatencyMode: false,
+              maxBufferLength: 30
+            });
+            this._hlsInstance = hls;
+            hls.loadSource(url);
+            hls.attachMedia(video);
+            hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
+              video.play().catch(function(){});
+              hideLoading();
+            });
+            hls.on(window.Hls.Events.ERROR, function(_, data) {
+              if (data && data.fatal) {
+                console.warn('HLS fatal error', data);
+                try { hls.destroy(); } catch(e) {}
+                this._hlsInstance = null;
+                showFallback('HLS stream error');
+              }
+            }.bind(this));
+          } catch (e) {
+            console.warn('HLS init failed', e);
+            showFallback('HLS init failed');
+          }
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+          video.src = url;
+          video.play().catch(function(){});
+        } else {
+          showFallback('HLS not supported in this browser');
+        }
+      } else {
+        video.src = url;
+        video.play().catch(function(){});
+      }
+
+      setTimeout(hideLoading, 8000);
+      return;
+    }
+
+    // ----- DEFAULT: IFRAME -----
     let initialUrl = source.url;
-    if (source.name && source.name.includes('vidlink') && this.currentPlayItem) {
+    if (source.name && String(source.name).toLowerCase().includes('vidlink') && this.currentPlayItem) {
       const resumeTime = this.getVidLinkResumeTime(this.currentPlayItem);
       initialUrl = this.buildVidLinkUrl(initialUrl, resumeTime);
     }
 
+    const escUrl = String(initialUrl || '').replace(/"/g, '&quot;');
+
     playerContent.innerHTML = `
       <div id="playerContainer" style="width:100%;height:100%;position:relative;background:#000;">
-        <iframe id="playerFrame" 
-          src="${initialUrl}" 
-          style="width:100%;height:100%;border:none;display:block;" 
-          allow="accelerometer; autoplay; encrypted-media; fullscreen; gyroscope; picture-in-picture" 
+        <iframe id="playerFrame"
+          src="${escUrl}"
+          style="width:100%;height:100%;border:none;display:block;"
+          allow="accelerometer; autoplay; encrypted-media; fullscreen; gyroscope; picture-in-picture; clipboard-write"
           allowfullscreen
+          referrerpolicy="no-referrer-when-downgrade"
         ></iframe>
         <div class="iframe-overlay" id="iframeBlocker" onclick="app.toggleIframeBlocker()"></div>
       </div>
@@ -12250,6 +12846,10 @@ toggleVivamaxVisibility() {
           clearTimeout(this._blockerTimer);
           this._blockerTimer = setTimeout(() => blocker.classList.remove('active'), 10000);
         }
+      };
+      iframe.onerror = () => {
+        if (playerLoading) playerLoading.style.display = 'none';
+        this.showToast('Embed blocked — try next source or open externally');
       };
     }
     setTimeout(() => {
@@ -13313,12 +13913,25 @@ this.hideUnreleasedCards();
   // Default Stremio addons installed automatically on first run / if missing
   _defaultStremioManifests: [
     'https://pengu.uk/%7B%22auth_token%22%3A%22kKFJ2Z1m3VZ8wNQP09IfRP5a-Ndryc-FtRzlX0lUstc%22%7D/manifest.json',
-    'https://cncverse.dpdns.org/u/p_c5ey1go733ma/manifest.json'
+	'https://cncverse.dpdns.org/u/p_c5ey1go733ma/manifest.json',
+	'https://hdhub.thevolecitor.qzz.io/eyJ0b3Jib3giOiJ1bnNldCIsInF1YWxpdGllcyI6IjIxNjBwLDEwODBwLDcyMHAsNDgwcCIsInNvcnQiOiJkZXNjIiwiY2F0YWxvZ3MiOiIifQ/manifest.json',
+	'https://muvibox.inulpc.web.id/manifest.json',
+	'https://hd.plavio.site/c/eyJzb3VyY2VzIjpbIlBsYXZpb0hEIl0sImxpdmVTb3VyY2VzIjpbXSwicGNsb3VkIjpmYWxzZSwicSI6WyIyMTYwcCIsIjEwODBwIiwiNzIwcCIsIjQ4MHAiXSwiZHluYW1pY1JhbmdlIjpbIlNEUiIsIkhEUiIsIlVua25vd24iXSwic29ydE1vZGUiOiJxdWFsaXR5IiwidGl0bGVfZm9ybWF0IjoiZGVmYXVsdCJ9/manifest.json'
   ],
 
   getInstalledStremioAddons() {
     try {
-      return JSON.parse(localStorage.getItem(this._stremioKey) || '[]');
+      const list = JSON.parse(localStorage.getItem(this._stremioKey) || '[]');
+      // Normalize: missing enabled => true (backward compatible)
+      let changed = false;
+      list.forEach(a => {
+        if (typeof a.enabled !== 'boolean') {
+          a.enabled = true;
+          changed = true;
+        }
+      });
+      if (changed) this.saveInstalledStremioAddons(list);
+      return list;
     } catch {
       return [];
     }
@@ -13367,7 +13980,8 @@ this.hideUnreleasedCards();
           resources: resources,
           manifestUrl: url,
           baseUrl,
-          isDefault: true
+          isDefault: true,
+          enabled: true
         });
         added++;
       } catch (e) {
@@ -13406,6 +14020,129 @@ this.hideUnreleasedCards();
     label.textContent = on ? 'Stremio Addons: ON' : 'Stremio Addons: OFF';
     btn.style.color = on ? 'var(--accent)' : 'var(--text-secondary)';
     btn.style.borderColor = on ? 'var(--accent)' : 'var(--border)';
+  },
+
+  isStremioAutoPlay() {
+    return !!this.stremioAutoPlay;
+  },
+
+  toggleStremioAutoPlay() {
+    this.stremioAutoPlay = !this.stremioAutoPlay;
+    localStorage.setItem('sv_stremio_autoplay', JSON.stringify(this.stremioAutoPlay));
+    this.updateStremioAutoPlayUI();
+    this.showToast(this.stremioAutoPlay ? 'Stremio auto-play ON' : 'Stremio auto-play OFF');
+  },
+
+  setStremioResolution(value) {
+    const allowed = ['any', '4k', '1080p', '720p', '480p'];
+    this.stremioResolution = allowed.includes(value) ? value : 'any';
+    localStorage.setItem('sv_stremio_resolution', this.stremioResolution);
+    this.updateStremioAutoPlayUI();
+    const labels = { any: 'Any', '4k': '4K', '1080p': '1080p', '720p': '720p', '480p': '480p' };
+    this.showToast('Stremio resolution: ' + (labels[this.stremioResolution] || this.stremioResolution));
+  },
+
+  updateStremioAutoPlayUI() {
+    const btn = document.getElementById('stremioAutoPlayToggle');
+    const text = document.getElementById('stremioAutoPlayText');
+    const sel = document.getElementById('stremioResolutionSelect');
+    if (btn) {
+      btn.style.color = this.stremioAutoPlay ? 'var(--accent)' : 'var(--text-secondary)';
+      btn.style.borderColor = this.stremioAutoPlay ? 'var(--accent)' : 'var(--border)';
+    }
+    if (text) {
+      text.textContent = this.stremioAutoPlay ? 'Auto-Play Stremio: ON' : 'Auto-Play Stremio: OFF';
+    }
+    if (sel) {
+      sel.value = this.stremioResolution || 'any';
+    }
+  },
+
+  isStremioSourceItem(source) {
+    if (!source) return false;
+    if (source.addonId || source.addonName) return true;
+    if (source.type === 'torrent') return true;
+    const n = String(source.name || '').toLowerCase();
+    return n.includes(' · ') || n.startsWith('torrentio') || n.startsWith('comet');
+  },
+
+  shouldAutoPlayStremioSource(sources) {
+    if (!this.stremioAutoPlay) return false;
+    if (!sources || !sources.length) return false;
+    // Only auto-play when the top ranked source is from Stremio (after resolution sort)
+    return this.isStremioSourceItem(sources[0]);
+  },
+
+  /** Parse approximate vertical resolution from stream title/name */
+  parseStreamResolution(name) {
+    const n = String(name || '').toLowerCase();
+    if (/\b(2160p|4k|uhd|ultra\s*hd)\b/.test(n)) return 2160;
+    if (/\b(1080p|fhd|full\s*hd)\b/.test(n)) return 1080;
+    if (/\b(720p)\b/.test(n)) return 720;
+    if (/\b(480p)\b/.test(n)) return 480;
+    if (/\b(360p)\b/.test(n)) return 360;
+    // weaker heuristics
+    if (/\bhdrip\b|\bweb-?dl\b|\bbluray\b|\bblu-ray\b/.test(n) && !/480|360|cam|ts\b|scr/.test(n)) return 720;
+    return 0;
+  },
+
+  resolutionPreferenceToHeight(pref) {
+    const map = { '4k': 2160, '1080p': 1080, '720p': 720, '480p': 480 };
+    return map[pref] || 0;
+  },
+
+  /**
+   * Sort/filter Stremio streams by preferred resolution.
+   * Matching streams come first (sorted by quality), then the rest.
+   */
+  /** True if stream URL looks playable in HTML5 video / HLS.js */
+  isWebPlayableStream(stream) {
+    if (!stream) return false;
+    if (stream.type === 'torrent' || stream.type === 'youtube') return false;
+    const u = String(stream.url || '').toLowerCase();
+    if (!u || u.startsWith('magnet:')) return false;
+    if (/\.(mkv|avi|wmv|flv|ts|m2ts|vob|divx|xvid|rmvb)(\?|#|$)/i.test(u)) return false;
+    if (/\.(mp4|webm|ogg|ogv|m4v|mov|mp3|m4a)(\?|#|$)/i.test(u)) return true;
+    if (u.includes('.m3u8') || u.includes('playlist.m3u') || u.includes('/hls/') ||
+        u.includes('format=m3u8') || u.includes('mime=video') ||
+        u.includes('application/x-mpegurl') || u.includes('vnd.apple.mpegurl')) return true;
+    if (stream.type === 'url' && /^https?:/i.test(stream.url || '')) {
+      // http(s) url streams without bad extension — try as web
+      if (!/\.(mkv|avi|wmv|flv)(\?|#|$)/i.test(u)) return true;
+    }
+    return false;
+  },
+
+  applyStremioResolutionFilter(streams) {
+    if (!streams || !streams.length) return streams || [];
+    const pref = this.stremioResolution || 'any';
+    const target = this.resolutionPreferenceToHeight(pref);
+
+    const scored = streams.map((s, idx) => {
+      const res = this.parseStreamResolution(s.name || (s.raw && (s.raw.name || s.raw.title)) || '');
+      let score = 0;
+      if (pref === 'any') {
+        score = res || 1; // higher res first; unknown near bottom of unknowns
+      } else if (target) {
+        if (res === target) score = 10000 + res;
+        else if (res > 0 && Math.abs(res - target) <= 120) score = 5000 + res; // close match
+        else if (res > 0) score = res; // other known
+        else score = 0;
+      }
+      // Boost web-playable formats so they are preferred for in-page playback
+      if (this.isWebPlayableStream(s)) score += 50000;
+      // Penalize clearly non-web containers
+      const u = String(s.url || '').toLowerCase();
+      if (/\.(mkv|avi|wmv|flv)(\?|#|$)/i.test(u)) score -= 20000;
+      return { s, idx, res, score };
+    });
+
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.idx - b.idx;
+    });
+
+    return scored.map(x => x.s);
   },
 
   showStremioProgress(total) {
@@ -13514,7 +14251,8 @@ this.hideUnreleasedCards();
         idPrefixes: manifest.idPrefixes || ['tt'],
         resources: resources,
         manifestUrl,
-        baseUrl
+        baseUrl,
+        enabled: true
       });
 
       this.saveInstalledStremioAddons(list);
@@ -13545,7 +14283,8 @@ this.hideUnreleasedCards();
    */
   async fetchStremioStreams(type, id, opts = {}) {
     if (!this.isStremioEnabled()) return [];
-    const addons = this.getInstalledStremioAddons();
+    // Only query addons that are individually enabled
+    const addons = this.getInstalledStremioAddons().filter(a => a.enabled !== false);
     if (!addons.length) return [];
 
     const timeoutMs = opts.timeoutMs || 15000;
@@ -13602,7 +14341,25 @@ this.hideUnreleasedCards();
           streamType = 'external';
         }
 
+        // Streams marked notWebReady are not meant for browser embed/video — open externally
+        if (s.behaviorHints && s.behaviorHints.notWebReady) {
+          streamType = 'external';
+        }
+
         if (!playUrl) return;
+
+        // Heuristic: many "url" streams are actually HTML player pages that must use iframe
+        if (streamType === 'url' && playUrl) {
+          const lower = playUrl.toLowerCase();
+          const isDirectMedia = /\.(mp4|mkv|webm|ogg|m4v|mov|avi)(\?|#|$)/i.test(lower) ||
+            lower.includes('.m3u8') || lower.includes('mime=video') || lower.includes('/playlist.m3u');
+          const isEmbedPage = /\/(embed|player|watch|stream|play)\b/i.test(lower) ||
+            lower.includes('vidsrc') || lower.includes('vidlink') || lower.includes('2embed') ||
+            lower.includes('embed.') || lower.includes('/e/') || lower.includes('player.');
+          if (!isDirectMedia && isEmbedPage) {
+            streamType = 'iframe';
+          }
+        }
 
         const key = streamType + '|' + playUrl + '|' + (s.infoHash || '') + '|' + name;
         if (seenKeys.has(key)) return;
@@ -13702,7 +14459,8 @@ this.hideUnreleasedCards();
     await new Promise(r => setTimeout(r, 400));
     this.hideStremioProgress();
 
-    return results;
+    // Sort / prefer by resolution setting from More page
+    return this.applyStremioResolutionFilter(results);
   },
 
   // Quick prompt to add a Stremio addon
@@ -13756,13 +14514,28 @@ this.hideUnreleasedCards();
     if (ok) this.renderStremioAddonsList();
   },
 
+  toggleStremioAddonEnabled(id) {
+    const list = this.getInstalledStremioAddons();
+    const addon = list.find(a => a.id === id);
+    if (!addon) return;
+    addon.enabled = !(addon.enabled !== false); // flip; treat missing as true
+    this.saveInstalledStremioAddons(list);
+    this.showToast((addon.enabled ? 'ON: ' : 'OFF: ') + (addon.name || id));
+    this.renderStremioAddonsList();
+  },
+
   renderStremioAddonsList() {
     const listEl = document.getElementById('stremioAddonsList');
     const countEl = document.getElementById('stremioAddonCount');
     if (!listEl) return;
 
     const addons = this.getInstalledStremioAddons();
-    if (countEl) countEl.textContent = addons.length + ' installed';
+    const enabledCount = addons.filter(a => a.enabled !== false).length;
+    if (countEl) {
+      countEl.textContent = addons.length
+        ? (addons.length + ' installed · ' + enabledCount + ' on')
+        : '0 installed';
+    }
 
     if (!addons.length) {
       listEl.innerHTML = `
@@ -13772,20 +14545,36 @@ this.hideUnreleasedCards();
       return;
     }
 
-    listEl.innerHTML = addons.map(a => `
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
+    listEl.innerHTML = addons.map(a => {
+      const on = a.enabled !== false;
+      const border = on ? 'var(--border)' : 'rgba(255,255,255,0.06)';
+      const opacity = on ? '1' : '0.55';
+      return `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg);border:1px solid ${border};border-radius:10px;opacity:${opacity};">
         ${a.logo ? `<img src="${a.logo}" style="width:32px;height:32px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'">` : 
           `<div style="width:32px;height:32px;border-radius:8px;background:var(--accent-glow);display:flex;align-items:center;justify-content:center;font-size:16px;">🧩</div>`}
         <div style="flex:1;min-width:0;">
           <div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${a.name}</div>
-          <div style="font-size:11px;color:var(--text-muted);">v${a.version || '1.0'} · ${ (a.types || []).join(', ') }</div>
+          <div style="font-size:11px;color:var(--text-muted);">v${a.version || '1.0'} · ${ (a.types || []).join(', ') } · ${on ? 'Active' : 'Disabled'}</div>
         </div>
+        <button onclick="app.toggleStremioAddonEnabled('${a.id}')"
+          class="focusable"
+          style="padding:6px 12px;background:${on ? 'rgba(200,255,0,0.15)' : 'rgba(255,255,255,0.06)'};border:1px solid ${on ? 'var(--accent)' : 'var(--border)'};border-radius:8px;color:${on ? 'var(--accent)' : 'var(--text-muted)'};font-size:11px;font-weight:800;cursor:pointer;font-family:inherit;min-width:48px;">
+          ${on ? 'ON' : 'OFF'}
+        </button>
+        <button onclick="app.openStremioAddonInDesktop(${JSON.stringify(a.manifestUrl || '')})"
+          class="focusable"
+          title="Install / open in Stremio desktop app"
+          style="padding:6px 10px;background:rgba(200,255,0,0.12);border:1px solid rgba(200,255,0,0.35);border-radius:8px;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">
+          Desktop
+        </button>
         <button onclick="app.removeStremioAddon('${a.id}'); app.renderStremioAddonsList();" 
+          class="focusable"
           style="padding:6px 10px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);border-radius:8px;color:#ef4444;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">
           Remove
         </button>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   },
 
   setTvFilter(filter) {
